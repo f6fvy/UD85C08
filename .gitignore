@@ -1,0 +1,28 @@
+# Visual Studio / C++ build artifacts
+.vs/
+*.user
+*.suo
+Debug/
+Release/
+x64/
+Win32/
+*.ilk
+*.pdb
+*.obj
+*.log
+*.tlog
+ipch/
+
+# dist/ is kept nonetheless (deliberately published artifacts)
+!dist/
+!dist/**
+
+# --------------------------------------------------------------------
+# third_party/naughter/SerialPort.h is a third-party file (CSerialPort2,
+# naughter.com). Its license only allows redistributing the exact,
+# unmodified version released by the author, to keep a single
+# distribution point for the source code. To stay clearly compliant
+# once this repository becomes public, it is NOT tracked here.
+# See third_party/naughter/README.md for how to obtain it.
+# --------------------------------------------------------------------
+Core/third_party/naughter/SerialPort.h
