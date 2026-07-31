@@ -78,9 +78,12 @@ reality differs from the assumption.
   observed on a real port.
   → `Core/src/SerialTransport.cpp`, `Read`.
 
-- [ ] **Port name format.** `Controller::Connect` expects a `std::wstring`
-  such as `L"COM5"`. Needs checking for ports above COM9 (which require
-  the `\\.\COM12` form) — untested.
+- [ ] **Port name format.** `Controller::Connect` (via
+  `CUD85C08_GUIDlg::BuildPortPath`) now always builds the `\\.\COMx`
+  extended form, for every port number (not just above COM9, as
+  originally assumed here). Never verified end-to-end against a real
+  device on either a low-numbered (COM1-9) or a high-numbered (COM10+)
+  port - confirm both work.
 
 - [ ] **CH340 driver.** Assumed to be natively present on recent
   Windows 10/11 (confirmed via a web search at design time), but not
@@ -105,6 +108,30 @@ reality differs from the assumption.
   link.
 
 ---
+
+## GUI design questions (open, deliberately deferred)
+
+Raised while designing the relay/input LED refresh mechanism (paused -
+see README.md "Next step"); noted here so they are not lost before
+resuming that work.
+
+- [ ] **How should the relay LEDs reflect state after a `Send*` command?**
+  Three options were considered: (a) optimistic - flip the LED as soon as
+  the write succeeds, without confirmation; (b) confirmed - follow up
+  with a status query before updating the LED; (c) optimistic + periodic
+  correction poll. (b) and (c) are blocked on the undocumented HEX
+  response formats above. Leaning towards (a) for a first version, with
+  (c) added later once those formats are confirmed.
+
+- [ ] **Momentary/Delay modes leave the LED "stuck ON".** With an
+  optimistic update, clicking a Momentary or Delay button would turn the
+  relay LED on, but the firmware auto-closes the relay on its own
+  (after ~500 ms for Momentary, or the configured delay) without
+  notifying the host - so the LED would stay lit after the relay has
+  actually closed, unless a periodic confirmation poll (see above) is
+  in place. Not solved by an application-side timer mimicking the
+  firmware's timing, as that would be guessing at behaviour that should
+  instead be observed on the real device.
 
 ## Suggested first tests once the board arrives
 

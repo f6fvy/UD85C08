@@ -56,19 +56,11 @@ namespace
         return std::wstring(s.begin(), s.end()); // port names are plain ASCII (e.g. "COM5")
     }
 
+    // Human-readable name for a ResultCode. Uses the shared implementation
+    // in UD85C08_Types.h rather than duplicating this switch here.
     const char* ResultCodeToString(ResultCode code)
     {
-        switch (code)
-        {
-        case ResultCode::Ok:                 return "Ok";
-        case ResultCode::Timeout:            return "Timeout";
-        case ResultCode::NotConnected:       return "NotConnected";
-        case ResultCode::InvalidChannel:     return "InvalidChannel";
-        case ResultCode::InvalidChecksum:    return "InvalidChecksum";
-        case ResultCode::TransportError:     return "TransportError";
-        case ResultCode::UnexpectedResponse: return "UnexpectedResponse";
-        }
-        return "Unknown";
+        return UD85C08::ToString(code);
     }
 
     void PrintResult(const char* label, const OperationResult& result)

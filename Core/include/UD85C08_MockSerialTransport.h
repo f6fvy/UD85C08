@@ -41,6 +41,9 @@ namespace UD85C08
             if (!m_open)
                 return OperationResult::Error(ResultCode::NotConnected);
 
+            if (m_forcedError)
+                return OperationResult::Error(m_forcedErrorCode);
+
             // Record what was sent, for test assertions.
             m_sentHistory.push_back(data);
             return OperationResult::Success();
@@ -50,6 +53,9 @@ namespace UD85C08
         {
             if (!m_open)
                 return OperationResult::Error(ResultCode::NotConnected);
+
+            if (m_forcedError)
+                return OperationResult::Error(m_forcedErrorCode);
 
             if (m_rxQueue.empty())
                 return OperationResult::Error(ResultCode::Timeout);
@@ -76,10 +82,26 @@ namespace UD85C08
         // All buffers previously passed to Write(), in call order.
         const std::vector<ByteBuffer>& GetSentHistory() const { return m_sentHistory; }
 
+        // Forces every subsequent Read()/Write() call to fail with the
+        // given error, instead of behaving normally. Simulates a genuine
+        // transport failure (e.g. the USB cable being unplugged), as
+        // opposed to a mere "no data yet" timeout - useful to test that
+        // Controller correctly distinguishes the two (see
+        // HARDWARE_ASSUMPTIONS.md and SelfTests.cpp).
+        void SetForcedError(ResultCode code)
+        {
+            m_forcedError = true;
+            m_forcedErrorCode = code;
+        }
+
+        void ClearForcedError() { m_forcedError = false; }
+
         void ClearHistory() { m_sentHistory.clear(); }
 
     private:
         bool m_open = false;
+        bool m_forcedError = false;
+        ResultCode m_forcedErrorCode = ResultCode::TransportError;
         std::deque<uint8_t> m_rxQueue;
         std::vector<ByteBuffer> m_sentHistory;
     };

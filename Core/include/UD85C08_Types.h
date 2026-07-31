@@ -90,6 +90,24 @@ namespace UD85C08
         static OperationResult Error(ResultCode c) noexcept { return OperationResult{ c }; }
     };
 
+    // Human-readable name for a ResultCode, e.g. for error messages/logs.
+    // Returns an ASCII string literal; safe to embed in either a narrow
+    // (CLI) or wide (MFC CString via "%hs") message.
+    inline const char* ToString(ResultCode code) noexcept
+    {
+        switch (code)
+        {
+            case ResultCode::Ok:                 return "Ok";
+            case ResultCode::Timeout:            return "Timeout";
+            case ResultCode::NotConnected:       return "NotConnected";
+            case ResultCode::InvalidChannel:     return "InvalidChannel";
+            case ResultCode::InvalidChecksum:    return "InvalidChecksum";
+            case ResultCode::TransportError:     return "TransportError";
+            case ResultCode::UnexpectedResponse: return "UnexpectedResponse";
+        }
+        return "Unknown";
+    }
+
     // ------------------------------------------------------------------
     // Asynchronous events (used by the event-driven / callback API,
     // primarily intended for GUI consumers that must not block their

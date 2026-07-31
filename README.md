@@ -36,7 +36,12 @@ UD85C08/
 |                                      NOT tracked in git - see its own README.md
 |
 |-- CLI/                           <- UD85C08_CLI.vcxproj (console)
-|-- GUI/                           <- UD85C08_GUI.vcxproj (MFC)
+|
+|-- GUI/                           <- UD85C08_GUI.vcxproj (MFC, Dialog based)
+|   `-- UD85C08_GUI/
+|       |-- UD85C08_GUIDlg.h/.cpp       Main dialog (wired to Controller)
+|       |-- LedControl.h/.cpp           Custom CStatic-derived LED indicator
+|       `-- Settings.h/.cpp             .ini persistence (%APPDATA%)
 |
 `-- dist/                          <- published artifacts (lib + headers)
                                        for a future external project
@@ -46,14 +51,16 @@ UD85C08/
 
 | Component | Status |
 |---|---|
-| `AtCommandCodec` / `HexFrameCodec` | Done, validated by 46 self-tests against the datasheet |
-| `Controller` (logic, sync + polling) | Done, validated via `MockSerialTransport` |
+| `AtCommandCodec` / `HexFrameCodec` | Done, validated by self-tests against the datasheet |
+| `Controller` (logic, sync + polling) | Done, validated via `MockSerialTransport`, incl. hardening tests (mismatched responses, transport errors, persistent failures) |
 | `SerialTransport` (real, `CSerialPort2`) | Written, compiles, **never tested on a physical port** |
 | `UD85C08_CLI` | Functional (argument parsing, `--selftest`), hardware commands untested |
-| `UD85C08_GUI` | MFC wizard skeleton only, no custom UI yet |
+| `UD85C08_GUI` | Full UI wired to `Controller`: Connect/Disconnect, per-channel ON/OFF (mode-dependent), All ON/OFF, I/O relation, `.ini` settings persistence. Relay/input LEDs not yet live-updated (needs input polling, paused - see below) |
 
-See `CHANGELOG.md` for step-by-step details, and especially
-`HARDWARE_ASSUMPTIONS.md` before plugging in the board for the first time.
+51/51 self-tests passing (`AtCommandCodec`, `HexFrameCodec`, `Controller` +
+`MockSerialTransport` integration and hardening). See `CHANGELOG.md` for
+step-by-step details, and especially `HARDWARE_ASSUMPTIONS.md` before
+plugging in the board for the first time.
 
 ## Getting third-party dependencies
 
@@ -82,9 +89,13 @@ From a terminal in the output folder (e.g. `x64\Debug\`):
 UD85C08_CLI.exe --selftest
 ```
 
-Should print `46/46 tests passed.` — no hardware required.
+Should print `51/51 tests passed.` — no hardware required.
 
 ## Next step
 
-Wire `UD85C08_GUI` to `Controller`, then perform full validation on
-physical hardware once available (see `HARDWARE_ASSUMPTIONS.md`).
+Paused, pending physical hardware access: wire relay/input LEDs to live
+`Controller` state via a background polling thread + `PostMessage` (the
+design was discussed but not implemented - it depends on HEX response
+formats and update-timing semantics that are still open questions, see
+`HARDWARE_ASSUMPTIONS.md`). Once the board is available: work through
+`HARDWARE_ASSUMPTIONS.md`'s suggested first tests, then resume this.

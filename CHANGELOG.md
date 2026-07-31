@@ -4,6 +4,85 @@ History of UD85C08's development steps. No formal version numbering yet
 (no first version validated on real hardware yet): entries describe
 progress in order.
 
+## Step 9 — Review/hardening pass (GUI + Core)
+
+- Added `UD85C08::ToString(ResultCode)` to `UD85C08_Types.h` (public,
+  header-only): centralizes the code<->text mapping previously
+  duplicated as a local function in `UD85C08_CLI`, and now also used by
+  `UD85C08_GUI`'s error messages.
+- `UD85C08_CLI`'s local `ResultCodeToString` now just forwards to it.
+- GUI hardening: guarded against a double-click on Connect creating two
+  overlapping `Controller` instances; guarded `IDC_COMBO_PORT` having no
+  selection (`CB_ERR`) before reading its text; error message boxes now
+  include the actual `ResultCode` instead of a generic message.
+- Fixed a real bug found along the way: `OnBnClickedButtonConnect` was
+  calling `PopulateModeCombo()` without passing the combo's current
+  selection, silently resetting the Mode combo to "Normal" on every
+  successful connect (defeating the saved-settings restore done in
+  `OnInitDialog`).
+- `MockSerialTransport` extended with `SetForcedError`/`ClearForcedError`,
+  to simulate a genuine transport failure (e.g. USB cable unplugged) as
+  opposed to a plain "no data yet" timeout.
+- 5 new `Controller` self-tests: several mismatched responses arriving
+  before a real timeout are discarded cleanly (no hang, no false match);
+  a real transport error is reported as `TransportError` immediately
+  rather than waiting out the full timeout like a `Timeout` would;
+  `StartInputPolling` under a persistent transport error still raises
+  `TransportError` events and `StopInputPolling` still returns promptly
+  (no busy-loop / no hang). Total: 51/51 self-tests passing.
+
+## Step 8 — Settings persistence (.ini)
+
+- Added `Settings.h/.cpp` in `UD85C08_GUI`: loads/saves port, protocol,
+  mode, delay, and I/O relation to `%APPDATA%\UD85C08\settings.ini`
+  (a plain, human-readable/editable .ini file, not the Registry, as
+  requested), via `Get/WritePrivateProfileString` with an explicitly
+  built path rather than MFC's default registry-backed profile
+  functions.
+- Wired into `UD85C08_GUIDlg`: loaded and applied in `OnInitDialog`
+  (falls back to defaults if the file/keys are missing or the saved COM
+  port is no longer present), saved on a successful `Connect` (port +
+  protocol) and again on `OnDestroy` (full current state).
+- Deliberately paused work on input polling / the worker thread (former
+  "point 7"): it depends on HEX response formats and relay-LED update
+  semantics that are still open questions in `HARDWARE_ASSUMPTIONS.md`,
+  better resolved once the physical board is available rather than
+  guessed now.
+
+## Step 7 — GUI wiring: Connect/Disconnect, per-channel buttons
+
+- Wired `IDC_BUTTON_CONNECT`/`IDC_BUTTON_DISCONNECT` to `UD85C08::Controller`
+  (construct with the selected protocol, `Connect`/`Disconnect`, lock the
+  port combo and protocol radios while connected).
+- Wired the 8 channel ON/OFF button pairs using `ON_CONTROL_RANGE` (two
+  handlers total instead of one per button), relying on
+  `IDC_BUTTON_RELAY_ON_1..8` / `IDC_BUTTON_RELAY_OFF_1..8` being
+  contiguous resource ID ranges - documented explicitly in
+  `GUI/README.md` since the resource editor does not protect this
+  invariant and a broken range would fail silently.
+- Per-channel button behaviour adapts to the selected mode (Normal shows
+  both ON/OFF buttons; Momentary/Toggle/Latch/Delay show a single
+  relabeled button), matching the design discussed for the dialog.
+- Updated `GUI/README.md` (was still describing the pre-creation state,
+  in French) to reflect the actual project and document the
+  contiguous-ID requirement.
+
+## Step 6 — CLedControl (GUI indicator)
+
+- Added `CLedControl` (`GUI/UD85C08_GUI/LedControl.h/.cpp`), a minimal
+  two-state LED indicator (gray = off, red = on) derived from `CStatic`,
+  drawn with GDI (filled circle) and double-buffered to avoid flicker.
+- Deliberately written from scratch rather than reusing an old CodeGuru
+  `CLed` class the user had used before: that class's header only carried
+  a bare "All rights reserved" copyright notice with no explicit license
+  grant, which is too ambiguous to keep in a project intended to
+  eventually go public. A richer, more general-purpose LED control
+  (multiple shapes/colors) may be written later as a separate discussion/
+  module if needed; this one intentionally stays minimal for the current
+  GUI's actual requirements.
+- Lives in `UD85C08_GUI` (not `Core`), consistent with the "no GUI
+  components in Core" rule.
+
 ## Step 5 — Git setup, third-party license compliance
 
 - Initialized the Git repository (kept private for now, may become public

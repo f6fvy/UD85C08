@@ -14,6 +14,10 @@
 #include <vector>
 #include <algorithm>
 #include <tuple>
+#include <atomic>
+#include <mutex>
+#include <chrono>
+#include <thread>
 
 namespace UD85C08
 {
@@ -279,6 +283,84 @@ namespace UD85C08
                 OperationResult result = controller.SendOpen(1);
                 Check(result.code == ResultCode::NotConnected,
                       "Controller: SendOpen before Connect() reports NotConnected");
+            }
+
+            // --- Hardening: several mismatched responses before a real timeout ---
+            // Simulates other channels' responses arriving on the wire (as HEX
+            // has no request/response correlation) while we're waiting for a
+            // specific one that never comes. Query() must discard each of them
+            // and still time out cleanly, rather than matching the wrong one
+            // or hanging.
+            {
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+
+                Controller controller(ProtocolMode::Hex, std::move(transport));
+                controller.Connect(L"MOCK");
+
+                mock->QueueIncomingBytes({ 0x33,0x3C,0x00,0x00,0x00,0x02,0x01,0x72 }); // ch2, not ch5
+                mock->QueueIncomingBytes({ 0x33,0x3C,0x00,0x00,0x00,0x03,0x02,0x74 }); // ch3, not ch5
+                mock->QueueIncomingBytes({ 0x33,0x3C,0x00,0x00,0x00,0x07,0x01,0x77 }); // ch7, not ch5
+
+                RelayState state = RelayState::Unknown;
+                OperationResult result = controller.QueryRelayStatus(5, state, 100);
+                Check(result.code == ResultCode::Timeout,
+                      "Controller(HEX): mismatched responses are discarded, query still times out cleanly");
+            }
+
+            // --- Hardening: a real transport error is reported immediately, ---
+            // --- not confused with a plain "no data yet" timeout ---------------
+            {
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+
+                Controller controller(ProtocolMode::Hex, std::move(transport));
+                controller.Connect(L"MOCK");
+                mock->SetForcedError(ResultCode::TransportError);
+
+                RelayState state = RelayState::Unknown;
+                auto start = std::chrono::steady_clock::now();
+                OperationResult result = controller.QueryRelayStatus(1, state, 5000); // generous timeout
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start).count();
+
+                Check(result.code == ResultCode::TransportError,
+                      "Controller(HEX): a real transport error is reported as TransportError, not Timeout");
+                Check(elapsedMs < 1000,
+                      "Controller(HEX): a real transport error returns promptly, without waiting out the full timeout");
+            }
+
+            // --- Hardening: input polling survives (and reports) a persistent ---
+            // --- transport failure, and StopInputPolling() still returns promptly --
+            {
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+
+                Controller controller(ProtocolMode::Hex, std::move(transport));
+                controller.Connect(L"MOCK");
+                mock->SetForcedError(ResultCode::TransportError);
+
+                std::atomic<int> errorEventCount{ 0 };
+                std::mutex callbackMutex;
+                controller.SetEventCallback([&](const Event& ev)
+                    {
+                        std::lock_guard<std::mutex> lock(callbackMutex);
+                        if (ev.type == EventType::TransportError)
+                            ++errorEventCount;
+                    });
+
+                controller.StartInputPolling(20); // fast interval, this is a test
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+                auto stopStart = std::chrono::steady_clock::now();
+                controller.StopInputPolling(); // must return (join) promptly, not hang
+                auto stopElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - stopStart).count();
+
+                Check(errorEventCount.load() > 0,
+                      "Controller: polling under a persistent transport error raises TransportError events");
+                Check(stopElapsedMs < 1000,
+                      "Controller: StopInputPolling() returns promptly even while the transport keeps failing");
             }
         }
     } // namespace
