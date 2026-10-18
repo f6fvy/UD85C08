@@ -107,48 +107,64 @@ namespace UD85C08
         if (buffer.size() < FrameSize)
             return false; // need more bytes to have a full 8-byte frame
 
-        // Resynchronize if the expected response header is not present.
-        if (buffer[0] != ResponseHead1 || buffer[1] != ResponseHead2)
+        const bool isResponse = (buffer[0] == ResponseHead1 && buffer[1] == ResponseHead2);
+        const bool isEcho     = (buffer[0] == CommandHead1  && buffer[1] == CommandHead2);
+
+        // Resynchronize if neither known header is present.
+        if (!isResponse && !isEcho)
         {
             bytesConsumed = 1; // skip one byte and let the caller retry
             return false;
         }
 
-        uint8_t expectedChecksum = ComputeChecksum(buffer);
-        uint8_t actualChecksum = buffer[7];
-
         // Whether the checksum matches or not, this is a complete 8-byte
         // frame - consume it either way.
         bytesConsumed = FrameSize;
+        out = DecodedResponse{};
 
-        if (expectedChecksum != actualChecksum)
+        if (ComputeChecksum(buffer) != buffer[7])
         {
-            out = DecodedResponse{};
             out.kind = ResponseKind::Unrecognized;
             return true;
         }
 
-        uint8_t channelByte = buffer[5];
-        uint8_t command = buffer[6];
-
-        out = DecodedResponse{};
+        const uint8_t channelByte = buffer[5];
+        const uint8_t command = buffer[6];
         out.channel = channelByte; // 0 means "all channels"
 
-        if (command == CmdOpen)
+        if (isResponse)
         {
-            out.kind = ResponseKind::RelayStatus;
-            out.relayState = RelayState::Open;
+            switch (command)
+            {
+                case CmdOpen:
+                    out.kind = ResponseKind::RelayStatus;
+                    out.relayState = RelayState::Open;
+                    break;
+                case CmdClose:
+                    out.kind = ResponseKind::RelayStatus;
+                    out.relayState = RelayState::Closed;
+                    break;
+                case RespInputOn:
+                    out.kind = ResponseKind::InputStatus;
+                    out.inputState = InputState::On;
+                    break;
+                case RespInputOff:
+                    out.kind = ResponseKind::InputStatus;
+                    out.inputState = InputState::Off;
+                    break;
+                default:
+                    out.kind = ResponseKind::Unrecognized;
+                    break;
+            }
         }
-        else if (command == CmdClose)
+        else // echo of one of our own command frames
         {
-            out.kind = ResponseKind::RelayStatus;
-            out.relayState = RelayState::Closed;
-        }
-        else
-        {
-            // Response format not documented for this command yet
-            // (see the note at the top of HexFrameCodec.h).
-            out.kind = ResponseKind::Unrecognized;
+            // Only the "set I/O relation" command is acknowledged this
+            // way; 'channel' then carries the relation value (0..3).
+            if (command == CmdSetIoRelation)
+                out.kind = ResponseKind::Acknowledge;
+            else
+                out.kind = ResponseKind::Unrecognized;
         }
 
         return true;

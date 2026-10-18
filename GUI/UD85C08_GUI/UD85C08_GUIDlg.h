@@ -8,6 +8,9 @@
 #include "UD85C08_Controller.h" // public API, no MFC dependency
 #include <memory>
 
+// Posted by the Controller's callback (polling thread) to this dialog.
+#define WM_APP_CONTROLLER_EVENT (WM_APP + 1)
+
 // CUD85C08_GUIDlg dialog
 class CUD85C08_GUIDlg : public CDialogEx
 {
@@ -58,6 +61,11 @@ private:
 	CLedControl m_ledRelay7;
 	CLedControl m_ledRelay8;
 
+	CLedControl* m_relayLeds[8]; // index 0 = channel 1
+	CLedControl* m_inputLeds[8];
+	void InitLedArrays();
+	void ResetLeds();
+
 	CComboBox m_comboMode;
 	void PopulateModeCombo(bool includeDelay, int preferredIndex = ModeNormal);
 
@@ -84,7 +92,6 @@ private:
 	// once connected (Disconnect button, per-channel controls later on).
 	void SetConnectedUIState(bool connected);
 
-
 	void UpdateChannelButtonsForMode();
 	void EnableChannelControls(bool enable);
 	void OnRelayButtonClicked(int channel, bool isOnButton);
@@ -101,4 +108,8 @@ private:
 
 	afx_msg void OnCbnSelchangeComboMode();
 	afx_msg void OnCbnSelchangeComboIoRelation();
+
+	afx_msg LRESULT OnControllerEvent(WPARAM wParam, LPARAM lParam);
+
+	void HandleConnectionLost(UD85C08::ResultCode code);
 };

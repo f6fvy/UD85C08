@@ -1,6 +1,7 @@
 // SerialTransport.cpp
 
 #include "SerialTransport.h"
+#include "PortName.h"
 #include "../third_party/naughter/SerialPort.h"
 
 namespace UD85C08
@@ -28,8 +29,12 @@ namespace UD85C08
         // Fixed link parameters required by the UD85C08 datasheet:
         // 9600 baud, 8 data bits, no parity, 1 stop bit, no flow control.
         // bOverlapped = FALSE: blocking mode, see the note in SerialTransport.h.
+        // Always use the "\\.\COMn" form: required from COM10 upward and
+        // valid for every port (see PortName.h).
+        const std::wstring devicePath = NormalizePortName(portName);
+
         BOOL ok = m_impl->port.Open(
-            portName.c_str(),
+            devicePath.c_str(),
             9600,
             CSerialPort2::Parity::NoParity,
             8,

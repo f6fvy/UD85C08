@@ -8,17 +8,22 @@
 //   [0]=0x33 [1]=0x3C [2..4]=0x00 0x00 0x00 [5]=channel [6]=command [7]=checksum
 //
 // The checksum is simply the sum of bytes [0..6] modulo 256. This was
-// verified against every worked example in the datasheet (see the
-// conversation / project notes) rather than hard-coded from the tables,
-// so it is computed dynamically here.
+// verified against every worked example in the datasheet and against
+// the frames actually exchanged with a real board, so it is computed
+// dynamically here rather than hard-coded from the tables.
 //
-// NOTE: the datasheet only documents response frames for the "relay
-// open" (0x01) and "relay close" (0x02) commands. The response format
-// for toggle/interlock/momentary/read-status/read-input is not
-// documented and has not been verified against real hardware yet.
-// TryDecode() below only recognizes open/close responses; anything
-// else is reported as ResponseKind::Unrecognized until this can be
-// confirmed with the physical device.
+// Responses (verified on real hardware, see DEVICE_BEHAVIOR.md). The
+// datasheet only documents the Open/Close ones; the others were measured:
+//   header 33 3C, command 01 / 02 : relay state Open / Closed. Sent in
+//                                   reply to Open, Close, Read status,
+//                                   Toggle, Interlock, Momentary, All
+//                                   open/close (channel 00 = all).
+//   header 33 3C, command 81 / 82 : input state On / Off, in reply to
+//                                   Read input (81 = input tied to
+//                                   ground, 82 = input floating).
+//   header 55 56, command 0A      : the board simply echoes the "set I/O
+//                                   relation" command frame back to
+//                                   acknowledge it.
 
 #pragma once
 
@@ -66,6 +71,10 @@ namespace UD85C08
         static constexpr uint8_t CmdAllClose    = 0x08;
         static constexpr uint8_t CmdReadInput   = 0x09;
         static constexpr uint8_t CmdSetIoRelation = 0x0A;
+
+        // Command bytes seen only in responses (header 33 3C).
+        static constexpr uint8_t RespInputOn    = 0x81;
+        static constexpr uint8_t RespInputOff   = 0x82;
 
         // Builds a command frame: head + 3 reserved zero bytes + channelByte
         // + command + checksum (checksum computed as sum(bytes[0..6]) & 0xFF).

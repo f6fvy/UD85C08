@@ -27,6 +27,7 @@
     <ClInclude Include="include\UD85C08_Types.h" />
     <ClInclude Include="src\AtCommandCodec.h" />
     <ClInclude Include="src\HexFrameCodec.h" />
+    <ClInclude Include="src\PortName.h" />
     <ClInclude Include="src\SerialTransport.h" />
   </ItemGroup>
   <ItemGroup>

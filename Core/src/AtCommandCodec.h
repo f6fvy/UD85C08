@@ -2,14 +2,21 @@
 // Internal to UD85C08_Core - implements IProtocolCodec for the AT (ASCII)
 // protocol. Not exposed to external consumers of the library.
 //
-// Frame format: "AT+<CMD><channel>[=<value>]\r\n", uppercase only
-// (per datasheet: "AT commands must be uppercase, lowercase invalid").
+// Commands: "AT+<CMD><channel>[=<value>]", uppercase only (per datasheet:
+// "AT commands must be uppercase, lowercase invalid"). Verified on real
+// hardware: NO line terminator is required, so none is sent.
 //
-// Response format (per datasheet): lines such as "Open1", "Close3",
-// "ON2", "OFF5", "OK1", terminated by CR/LF. The exact terminator used
-// by the real device has not been verified against physical hardware
-// yet; this codec accepts '\r', '\n', or "\r\n" as a line terminator
-// when decoding, which should be robust to any of the three.
+// Responses (verified on real hardware, see DEVICE_BEHAVIOR.md). The
+// framing is irregular, which is why this codec does not rely on line
+// terminators:
+//   relay state : "\nOpen1 \n"   (note the trailing space) or "\nClose1\n"
+//   all relays  : "\nOpenA \n"   or "\nCloseA\n"
+//   input state : "ON1" / "OFF1" (no terminator at all)
+//   G command   : "OK1"          (no terminator at all; the digit is the
+//                                 G mode that was set, 0..3)
+// A response is therefore recognised as "known prefix + one channel
+// character" (a digit, or 'A' meaning all channels), ignoring any
+// CR / LF / space / tab around it.
 
 #pragma once
 
@@ -40,7 +47,7 @@ namespace UD85C08
                         size_t& bytesConsumed) const override;
 
     private:
-        // Builds "AT+<letter><channel>\r\n", e.g. BuildSimple('O', 3) -> "AT+O3\r\n"
+        // Builds "AT+<letter><channel>", e.g. BuildSimple('O', 3) -> "AT+O3"
         static ByteBuffer BuildSimple(char letter, Channel channel);
     };
 

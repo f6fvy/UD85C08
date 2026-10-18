@@ -7,9 +7,10 @@ USB serial link (CH340 chip), dual protocol: AT (ASCII) or HEX
 
 See also:
 - [`CHANGELOG.md`](CHANGELOG.md) — history of the project's steps
-- [`HARDWARE_ASSUMPTIONS.md`](HARDWARE_ASSUMPTIONS.md) — **unverified
-  assumptions about the real hardware**, to check first once the board
-  is available
+- [`DEVICE_BEHAVIOR.md`](DEVICE_BEHAVIOR.md) — what the real board
+  actually does, as measured on the bench (the codecs follow it)
+- [`HARDWARE_ASSUMPTIONS.md`](HARDWARE_ASSUMPTIONS.md) — what is still
+  unverified on the real hardware, and the pending GUI design decision
 
 ## Structure
 
@@ -53,14 +54,14 @@ UD85C08/
 |---|---|
 | `AtCommandCodec` / `HexFrameCodec` | Done, validated by self-tests against the datasheet |
 | `Controller` (logic, sync + polling) | Done, validated via `MockSerialTransport`, incl. hardening tests (mismatched responses, transport errors, persistent failures) |
-| `SerialTransport` (real, `CSerialPort2`) | Written, compiles, **never tested on a physical port** |
-| `UD85C08_CLI` | Functional (argument parsing, `--selftest`), hardware commands untested |
-| `UD85C08_GUI` | Full UI wired to `Controller`: Connect/Disconnect, per-channel ON/OFF (mode-dependent), All ON/OFF, I/O relation, `.ini` settings persistence. Relay/input LEDs not yet live-updated (needs input polling, paused - see below) |
+| `SerialTransport` (real, `CSerialPort2`) | Works on a physical board (open, read, write, timeouts) |
+| `UD85C08_CLI` | Functional; commands exercised on a real board in AT mode (open/close/read-relay/read-input/monitor) |
+| `UD85C08_GUI` | Full UI wired to `Controller`: Connect/Disconnect, per-channel ON/OFF (mode-dependent), All ON/OFF, I/O relation, `.ini` settings persistence. Live relay/input LEDs (polling + `PostMessage`), input relation applied at Connect; validated on a real board |
 
-51/51 self-tests passing (`AtCommandCodec`, `HexFrameCodec`, `Controller` +
-`MockSerialTransport` integration and hardening). See `CHANGELOG.md` for
-step-by-step details, and especially `HARDWARE_ASSUMPTIONS.md` before
-plugging in the board for the first time.
+109/109 self-tests passing (`AtCommandCodec`, `HexFrameCodec`, `Controller` +
+`MockSerialTransport` integration and hardening, including the frames
+actually captured from a real board). See `CHANGELOG.md` for step-by-step
+details.
 
 ## Getting third-party dependencies
 
@@ -89,13 +90,14 @@ From a terminal in the output folder (e.g. `x64\Debug\`):
 UD85C08_CLI.exe --selftest
 ```
 
-Should print `51/51 tests passed.` — no hardware required.
+Should print `109/109 tests passed.` — no hardware required.
 
 ## Next step
 
-Paused, pending physical hardware access: wire relay/input LEDs to live
-`Controller` state via a background polling thread + `PostMessage` (the
-design was discussed but not implemented - it depends on HEX response
-formats and update-timing semantics that are still open questions, see
-`HARDWARE_ASSUMPTIONS.md`). Once the board is available: work through
-`HARDWARE_ASSUMPTIONS.md`'s suggested first tests, then resume this.
+The generic tools (`Core`, `UD85C08_CLI`, `UD85C08_GUI`) are validated on a
+real board. What is left open is listed in `HARDWARE_ASSUMPTIONS.md`
+(recovery after a USB unplug, Momentary/Delay fall-back reporting in HEX,
+polling latency). The planned third project (Latch mode + input reading,
+separate solution consuming `dist/`) is not started; the `dist/` publishing
+step (post-build copy of `UD85C08.lib` and the public headers) still has to
+be set up for it.

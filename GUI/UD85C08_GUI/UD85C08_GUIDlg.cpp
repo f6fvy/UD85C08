@@ -84,6 +84,8 @@ BEGIN_MESSAGE_MAP(CUD85C08_GUIDlg, CDialogEx)
 
 	ON_CBN_SELCHANGE(IDC_COMBO_MODE, &CUD85C08_GUIDlg::OnCbnSelchangeComboMode)
 	ON_CBN_SELCHANGE(IDC_COMBO_IO_RELATION, &CUD85C08_GUIDlg::OnCbnSelchangeComboIoRelation)
+
+	ON_MESSAGE(WM_APP_CONTROLLER_EVENT, &CUD85C08_GUIDlg::OnControllerEvent)
 END_MESSAGE_MAP()
 
 
@@ -119,6 +121,8 @@ BOOL CUD85C08_GUIDlg::OnInitDialog()
 	CString delayStr;
 	delayStr.Format(_T("%d"), settings.delaySeconds);
 	m_editDelay.SetWindowText(delayStr);
+
+	InitLedArrays();
 
 	m_comboIoRelation.SetCurSel(static_cast<int>(settings.ioRelation));
 
@@ -285,6 +289,27 @@ void CUD85C08_GUIDlg::OnBnClickedButtonConnect()
 		return;
 	}
 
+	// Apply the relation shown in the combo: the board remembers its mode but cannot
+	// be asked for it, and the polling must know it (in G3 relays must never be read).
+	// The combo's item order matches UD85C08::InputOutputRelation.
+	int relationIndex = m_comboIoRelation.GetCurSel();
+	auto relation = static_cast<UD85C08::InputOutputRelation>(relationIndex >= 0 ? relationIndex : 0);
+
+	UD85C08::OperationResult relationResult = m_controller->SendSetInputOutputRelation(relation);
+	if (!relationResult.IsOk())
+	{
+		m_controller->Disconnect();
+		m_controller.reset();
+
+		CString msg;
+		if (relationResult.code == UD85C08::ResultCode::Timeout)
+			msg = _T("The board does not answer on this port. Check the COM port and the board's power supply.");
+		else
+			msg.Format(_T("Could not talk to the board (%hs)."), UD85C08::ToString(relationResult.code));
+		AfxMessageBox(msg, MB_ICONERROR);
+		return;
+	}
+
 	int currentModeIndex = m_comboMode.GetCurSel(); // preserve whatever was selected/restored
 	PopulateModeCombo(m_controller->SupportsDelay(), currentModeIndex);
 
@@ -293,6 +318,28 @@ void CUD85C08_GUIDlg::OnBnClickedButtonConnect()
 	settings.protocol = protocol;
 	SaveSettings(settings);
 
+	// The callback runs on the polling thread (or on this thread for Send*): it must
+	// not touch any control. Pack the event into the message parameters and post it.
+	HWND hwnd = GetSafeHwnd();
+	m_controller->SetEventCallback([hwnd](const UD85C08::Event& ev)
+		{
+			LPARAM lParam = static_cast<LPARAM>(ev.channel) << 16;
+			switch (ev.type)
+			{
+			case UD85C08::EventType::RelayStateChanged:
+				lParam |= (ev.relayState == UD85C08::RelayState::Open) ? 1 : 0;
+				break;
+			case UD85C08::EventType::InputStateChanged:
+				lParam |= (ev.inputState == UD85C08::InputState::On) ? 1 : 0;
+				break;
+			case UD85C08::EventType::TransportError:
+				lParam |= static_cast<LPARAM>(ev.errorCode);
+				break;
+			}
+			::PostMessage(hwnd, WM_APP_CONTROLLER_EVENT, static_cast<WPARAM>(ev.type), lParam);
+		});
+	m_controller->StartPolling(100);
+
 	SetConnectedUIState(true);
 }
 
@@ -300,9 +347,11 @@ void CUD85C08_GUIDlg::OnBnClickedButtonDisconnect()
 {
 	if (m_controller)
 	{
-		m_controller->StopInputPolling(); // safe no-op if never started
+		m_controller->StopPolling(); // safe no-op if never started
+		m_controller->SetEventCallback(nullptr);
 		m_controller->Disconnect();
 		m_controller.reset();
+		ResetLeds();
 	}
 
 	SetConnectedUIState(false);
@@ -338,7 +387,8 @@ void CUD85C08_GUIDlg::OnDestroy()
 
 	if (m_controller)
 	{
-		m_controller->StopInputPolling();
+		m_controller->StopPolling();
+		m_controller->SetEventCallback(nullptr);
 		m_controller->Disconnect();
 		m_controller.reset();
 	}
@@ -530,4 +580,69 @@ void CUD85C08_GUIDlg::PopulateModeCombo(bool includeDelay, int preferredIndex)
 	int index = (preferredIndex >= 0 && preferredIndex < count) ? preferredIndex : ModeNormal;
 	m_comboMode.SetCurSel(index);
 	UpdateChannelButtonsForMode();
+}
+
+void CUD85C08_GUIDlg::InitLedArrays()
+{
+	CLedControl* relay[8] = { &m_ledRelay1, &m_ledRelay2, &m_ledRelay3, &m_ledRelay4,
+							  &m_ledRelay5, &m_ledRelay6, &m_ledRelay7, &m_ledRelay8 };
+	CLedControl* input[8] = { &m_ledInput1, &m_ledInput2, &m_ledInput3, &m_ledInput4,
+							  &m_ledInput5, &m_ledInput6, &m_ledInput7, &m_ledInput8 };
+	for (int i = 0; i < 8; ++i)
+	{
+		m_relayLeds[i] = relay[i];
+		m_inputLeds[i] = input[i];
+	}
+}
+
+void CUD85C08_GUIDlg::ResetLeds()
+{
+	for (int i = 0; i < 8; ++i)
+	{
+		m_relayLeds[i]->SetState(false);
+		m_inputLeds[i]->SetState(false);
+	}
+}
+
+LRESULT CUD85C08_GUIDlg::OnControllerEvent(WPARAM wParam, LPARAM lParam)
+{
+	if (!m_controller)
+		return 0; // late message after a disconnect: ignore
+
+	auto type = static_cast<UD85C08::EventType>(wParam);
+	int channel = static_cast<int>((lParam >> 16) & 0xFFFF);
+	int value = static_cast<int>(lParam & 0xFFFF);
+
+	switch (type)
+	{
+	case UD85C08::EventType::RelayStateChanged:
+		if (channel >= 1 && channel <= 8)
+			m_relayLeds[channel - 1]->SetState(value != 0);
+		break;
+	case UD85C08::EventType::InputStateChanged:
+		if (channel >= 1 && channel <= 8)
+			m_inputLeds[channel - 1]->SetState(value != 0);
+		break;
+	case UD85C08::EventType::TransportError:
+		HandleConnectionLost(static_cast<UD85C08::ResultCode>(value));
+		break;
+	}
+	return 0;
+}
+
+void CUD85C08_GUIDlg::HandleConnectionLost(UD85C08::ResultCode code)
+{
+	// Polling has already stopped by itself; tear the session down here, on the UI thread.
+	m_controller->SetEventCallback(nullptr);
+	m_controller->Disconnect();
+	m_controller.reset();
+	ResetLeds();
+	SetConnectedUIState(false);
+
+	CString msg;
+	if (code == UD85C08::ResultCode::Timeout)
+		msg = _T("The board does not answer on this port. Check the COM port and the board's power supply.");
+	else
+		msg.Format(_T("Connection lost (%hs). Check the cable, then reconnect."), UD85C08::ToString(code));
+	AfxMessageBox(msg, MB_ICONWARNING);
 }

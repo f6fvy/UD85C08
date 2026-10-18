@@ -30,3 +30,15 @@ simply not routed to any handler), not with a compiler or runtime error.
 
 Built via Visual Studio 2022's "MFC App" wizard (Dialog based, MFC in a
 shared DLL). See the root `README.md` for the overall solution setup.
+
+## Input relation at Connect
+
+The board remembers its input relation (G0..G3) across power cycles and the
+library cannot read it back, yet the polling must know it (in G3 relays must
+never be read, or the pulses the board starts by itself get cancelled).
+`OnBnClickedButtonConnect` therefore sends the relation selected in the combo
+right after `Connect`, before `StartPolling`; the same call is made when the
+combo changes. If the board does not answer that first command, the
+connection is refused. The combo's item order must match
+`UD85C08::InputOutputRelation` (Independent, Self-locking, Interlocking,
+Momentary).

@@ -8,26 +8,23 @@
 //    ever leaks into this header, keeping consumers fully decoupled
 //    from the transport implementation (see project notes).
 //  - Two families of methods are exposed:
-//      * "Send*" commands: fire a state-changing command (open, close,
-//        toggle, ...). These are synchronous and return as soon as the
-//        command has been written to the wire (see .cpp for the exact
-//        behaviour regarding the device's acknowledgement).
-//      * "Query*" commands: synchronous, blocking calls that send a
-//        request and wait for the corresponding response from the
-//        device (with a timeout).
-//  - An optional event callback can be registered to receive
-//    asynchronous notifications, currently used for input polling
-//    (see StartInputPolling). This callback may be invoked from a
-//    background thread - a GUI consumer (e.g. MFC) MUST NOT touch UI
-//    elements directly from it; forward the event to the UI thread
-//    first (e.g. via PostMessage), as discussed in the project notes.
+//      * "Send*" commands (open, close, toggle, ...). Synchronous: each
+//        one waits for the board's answer (about 20 ms on real
+//        hardware) and returns ResultCode::Timeout if none comes within
+//        250 ms. A silent port is therefore reported instead of being
+//        mistaken for a success. The call blocks for that long at most.
+//      * "Query*" commands: synchronous, blocking calls that read a
+//        relay or an input state, with a caller-chosen timeout.
+//  - An optional event callback receives the state changes. The board
+//    never sends anything by itself, so changes are discovered by
+//    polling (StartPolling), and are also published at once for the
+//    channel a Send* just acted on. The callback may be invoked from the
+//    polling thread or from the thread that called Send* - a GUI consumer
+//    (e.g. MFC) MUST NOT touch UI elements directly from it; forward the
+//    event to the UI thread first (e.g. via PostMessage).
 //
-// IMPORTANT: this class has not yet been validated against a physical
-// UD85C08 board (no hardware was available while writing it). The
-// codecs were verified against every worked example in the datasheet,
-// but a few response behaviours are assumptions - see the comments in
-// AtCommandCodec.cpp / HexFrameCodec.h for the specific points that
-// still need confirming with real hardware.
+// What the board really does (answer formats, timing, relays changing
+// state on their own...) is documented in DEVICE_BEHAVIOR.md.
 
 #pragma once
 
@@ -66,7 +63,12 @@ namespace UD85C08
         void Disconnect();
         bool IsConnected() const noexcept;
 
-        // --- State-changing commands (fire) ---------------------------------
+        // --- State-changing commands ------------------------------------------
+        // Each one waits for the board's answer (see the notes at the top):
+        // Ok = the board confirmed, Timeout = nothing answered. On success a
+        // RelayStateChanged event is raised for every relay whose known state
+        // changed (SendLatch also reports the other relays as closed, which
+        // is what the board does).
         OperationResult SendOpen(Channel channel);
         OperationResult SendClose(Channel channel);
         OperationResult SendToggle(Channel channel);
@@ -76,6 +78,25 @@ namespace UD85C08
         OperationResult SendAllClose();
         OperationResult SendSetInputOutputRelation(InputOutputRelation relation);
 
+        // Tells the library which input relation the board is in WITHOUT
+        // sending anything (a board configured earlier, by another program or
+        // in a previous session). A successful SendSetInputOutputRelation does
+        // the same by itself. The board cannot be asked what mode it is in, so
+        // after Connect the relation is unknown until one of the two is called.
+        // It decides how StartPolling treats the relays:
+        //  - Unrelated / SelfLocking / Interlocking (G0, G1, G2): the board
+        //    has no timer involved, reading relays is harmless, and relay
+        //    changes are reported at once.
+        //  - Momentary (G3): the board pulses a relay by itself when its input
+        //    changes, and reading a relay during that pulse cancels it. The
+        //    polling therefore NEVER reads relays; their state comes from the
+        //    commands sent. A pulse started by an input is not reported (the
+        //    input change is).
+        //  - unknown: best effort - a relay is left unread for 2 s after its
+        //    input changed. A short tap can still go unseen and cancel a G3
+        //    pulse, so a consumer that can know the relation should tell it.
+        void SetKnownInputOutputRelation(InputOutputRelation relation);
+
         // AT protocol only (SupportsDelay() == false for HEX mode).
         // seconds must be in [0, 9999].
         OperationResult SendDelay(Channel channel, int seconds);
@@ -83,22 +104,50 @@ namespace UD85C08
         bool SupportsDelay() const noexcept;
 
         // --- Queries (blocking, wait for the device's response) -------------
+        // WARNING: on this board, reading a relay's state while that relay's
+        // Momentary/Delay pulse is running CANCELS the pulse (it then stays
+        // on). QueryRelayStatus talks to the board unconditionally, so do not
+        // call it on a relay you just pulsed until the pulse is over (about
+        // 0.5 s for Momentary, the delay for Delay). StartPolling already
+        // takes care of this by itself. Input reads and reads of other relays
+        // are harmless. See DEVICE_BEHAVIOR.md.
         OperationResult QueryRelayStatus(Channel channel, RelayState& outState, int timeoutMs = 500);
         OperationResult QueryInputStatus(Channel channel, InputState& outState, int timeoutMs = 500);
 
-        // --- Event-driven input monitoring -----------------------------------
-        // Registers the callback invoked for asynchronous events (input
-        // changes detected by polling, transport errors). Replaces any
-        // previously registered callback. Pass nullptr to unregister.
+        // --- Event-driven monitoring ---------------------------------------------
+        // Registers the callback invoked for asynchronous events
+        // (RelayStateChanged, InputStateChanged, TransportError). Replaces
+        // any previously registered callback. Pass nullptr to unregister.
         void SetEventCallback(EventCallback callback);
 
-        // Starts a background thread that polls all 8 inputs every
-        // pollIntervalMs and raises EventType::InputStateChanged through
-        // the registered callback whenever a change is detected versus
-        // the last known state. Safe to call again to change the interval
-        // (restarts the polling thread).
-        void StartInputPolling(int pollIntervalMs = 200);
-        void StopInputPolling();
+        // Starts a background thread that reads the 8 relays and the 8
+        // inputs in a loop (pausing pollIntervalMs between rounds) and
+        // raises RelayStateChanged / InputStateChanged through the callback
+        // whenever a state differs from the last known one. The first round
+        // reports every channel once, which lets a display initialise
+        // itself. Calling it again restarts the thread (and that first
+        // round).
+        //
+        // Polling is required: the board never sends anything unprompted,
+        // and relays do change on their own (Momentary/Delay fall back,
+        // Latch closes the others, input-driven relations G1..G3).
+        //
+        // After SendMomentary / SendDelay, the polling leaves that one relay
+        // unread until its pulse is over (plus a safety margin), because
+        // reading it would cancel the pulse. Everything else keeps being
+        // polled, and the relay's LED/state then updates to "closed" about a
+        // second after the pulse ends.
+        //
+        // The board can also act on a relay by itself when an input changes
+        // (input relations G1..G3). What the polling does about it depends on
+        // the relation (see SetKnownInputOutputRelation): in G3 relays are not
+        // read at all; in G0..G2 nothing special is needed; when the relation
+        // is unknown, each round reads an input BEFORE its relay and a relay is
+        // left unread for 2 s after its input changed (a G3 pulse lasts 0.9 to
+        // 1.3 s), which reports relay changes about two seconds late and can
+        // still be fooled by a tap shorter than one polling round.
+        void StartPolling(int pollIntervalMs = 100);
+        void StopPolling();
 
     private:
         struct Impl;

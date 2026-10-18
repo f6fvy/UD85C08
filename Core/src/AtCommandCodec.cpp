@@ -20,42 +20,55 @@ namespace UD85C08
             return channel >= 1 && channel <= ChannelCount;
         }
 
-        // Case-insensitive prefix check. Returns true and advances 'pos'
-        // past the prefix if 'text' starts with 'prefix' at position 0.
-        bool StartsWithNoCase(const std::string& text, const char* prefix)
+        // Characters the device may emit around a response (see the header
+        // comment): CR, LF, space and tab are all treated as padding.
+        bool IsSeparator(uint8_t c)
         {
-            size_t len = std::strlen(prefix);
-            if (text.size() < len)
-                return false;
-            for (size_t i = 0; i < len; ++i)
-            {
-                if (std::toupper(static_cast<unsigned char>(text[i])) !=
-                    std::toupper(static_cast<unsigned char>(prefix[i])))
-                    return false;
-            }
-            return true;
+            return c == '\r' || c == '\n' || c == ' ' || c == '\t';
         }
 
-        // Parses the trailing digits (or 'A'/'a' meaning "all channels" -> 0)
-        // found after a known prefix. Returns -1 if nothing valid follows.
-        int ParseTrailingChannel(const std::string& text, size_t prefixLen)
+        // A response is "<prefix><one channel character>". The prefix
+        // determines what kind of information it carries.
+        struct TokenSpec
         {
-            if (prefixLen >= text.size())
-                return -1;
+            const char*  prefix;
+            ResponseKind kind;
+            RelayState   relayState;
+            InputState   inputState;
+        };
 
-            if (text[prefixLen] == 'A' || text[prefixLen] == 'a')
-                return 0; // "all channels"
+        // None of these prefixes is a prefix of another one, so the first
+        // full match is unambiguous.
+        const TokenSpec Tokens[] =
+        {
+            { "Open",  ResponseKind::RelayStatus, RelayState::Open,    InputState::Unknown },
+            { "Close", ResponseKind::RelayStatus, RelayState::Closed,  InputState::Unknown },
+            { "OFF",   ResponseKind::InputStatus, RelayState::Unknown, InputState::Off     },
+            { "ON",    ResponseKind::InputStatus, RelayState::Unknown, InputState::On      },
+            { "OK",    ResponseKind::Acknowledge, RelayState::Unknown, InputState::Unknown },
+        };
 
-            int value = 0;
-            bool any = false;
-            for (size_t i = prefixLen; i < text.size(); ++i)
+        enum class MatchResult
+        {
+            None,    // the bytes at 'pos' cannot start this token
+            Partial, // they could, but more bytes are needed to tell
+            Full,    // the whole prefix is present
+        };
+
+        // Case-insensitive comparison of the bytes starting at 'pos' with 'prefix'.
+        MatchResult MatchPrefix(const ByteBuffer& buffer, size_t pos, const char* prefix)
+        {
+            const size_t prefixLen = std::strlen(prefix);
+            const size_t available = buffer.size() - pos;
+            const size_t compareCount = (available < prefixLen) ? available : prefixLen;
+
+            for (size_t i = 0; i < compareCount; ++i)
             {
-                if (!std::isdigit(static_cast<unsigned char>(text[i])))
-                    break;
-                value = value * 10 + (text[i] - '0');
-                any = true;
+                if (std::toupper(buffer[pos + i]) != std::toupper(static_cast<unsigned char>(prefix[i])))
+                    return MatchResult::None;
             }
-            return any ? value : -1;
+
+            return (available >= prefixLen) ? MatchResult::Full : MatchResult::Partial;
         }
     } // namespace
 
@@ -67,7 +80,6 @@ namespace UD85C08
         std::string s = "AT+";
         s += letter;
         s += std::to_string(channel);
-        s += "\r\n";
         return StringToBuffer(s);
     }
 
@@ -81,19 +93,18 @@ namespace UD85C08
 
     ByteBuffer AtCommandCodec::EncodeAllOpen() const
     {
-        return StringToBuffer("AT+AO\r\n");
+        return StringToBuffer("AT+AO");
     }
 
     ByteBuffer AtCommandCodec::EncodeAllClose() const
     {
-        return StringToBuffer("AT+AC\r\n");
+        return StringToBuffer("AT+AC");
     }
 
     ByteBuffer AtCommandCodec::EncodeSetInputOutputRelation(InputOutputRelation relation) const
     {
         std::string s = "AT+G";
         s += std::to_string(static_cast<int>(relation));
-        s += "\r\n";
         return StringToBuffer(s);
     }
 
@@ -105,7 +116,7 @@ namespace UD85C08
             return {};
 
         char buf[32];
-        std::snprintf(buf, sizeof(buf), "AT+D%d=%04d\r\n", channel, seconds);
+        std::snprintf(buf, sizeof(buf), "AT+D%d=%04d", channel, seconds);
         return StringToBuffer(std::string(buf));
     }
 
@@ -115,97 +126,77 @@ namespace UD85C08
     {
         bytesConsumed = 0;
 
-        // Find a line terminator ('\r' or '\n'). If none yet, we need more data.
-        size_t lineEnd = buffer.size();
-        for (size_t i = 0; i < buffer.size(); ++i)
+        // Skip padding in front of the response (the device sends a '\n'
+        // before relay status lines, and may leave a trailing space/'\n'
+        // from the previous response that arrives later).
+        size_t pos = 0;
+        while (pos < buffer.size() && IsSeparator(buffer[pos]))
+            ++pos;
+
+        if (pos == buffer.size())
         {
-            if (buffer[i] == '\r' || buffer[i] == '\n')
+            bytesConsumed = pos; // only padding so far: drop it, wait for more
+            return false;
+        }
+
+        const TokenSpec* matched = nullptr;
+        bool partial = false;
+
+        for (const TokenSpec& spec : Tokens)
+        {
+            MatchResult m = MatchPrefix(buffer, pos, spec.prefix);
+            if (m == MatchResult::Full)
             {
-                lineEnd = i;
+                matched = &spec;
                 break;
             }
-        }
-        if (lineEnd == buffer.size())
-            return false; // no full line yet
-
-        std::string line(reinterpret_cast<const char*>(buffer.data()), lineEnd);
-
-        // Consume the line plus any immediately following CR/LF characters
-        // (handles "\r\n", "\n\r", or lone "\r"/"\n").
-        size_t consumed = lineEnd;
-        while (consumed < buffer.size() &&
-               (buffer[consumed] == '\r' || buffer[consumed] == '\n'))
-        {
-            ++consumed;
-        }
-        bytesConsumed = consumed;
-
-        if (line.empty())
-        {
-            out = DecodedResponse{};
-            return true; // empty line, nothing to report but fully consumed
+            if (m == MatchResult::Partial)
+                partial = true;
         }
 
-        // Order matters: "OFF" must be checked before "ON" (both start with 'O').
-        if (StartsWithNoCase(line, "Open"))
+        if (!matched)
         {
-            int ch = ParseTrailingChannel(line, 4);
-            if (ch >= 0)
+            if (partial)
             {
-                out.kind = ResponseKind::RelayStatus;
-                out.channel = ch;
-                out.relayState = RelayState::Open;
-                return true;
+                bytesConsumed = pos; // could still become a valid token: wait for more bytes
+                return false;
             }
-        }
-        else if (StartsWithNoCase(line, "Close"))
-        {
-            int ch = ParseTrailingChannel(line, 5);
-            if (ch >= 0)
-            {
-                out.kind = ResponseKind::RelayStatus;
-                out.channel = ch;
-                out.relayState = RelayState::Closed;
-                return true;
-            }
-        }
-        else if (StartsWithNoCase(line, "OFF"))
-        {
-            int ch = ParseTrailingChannel(line, 3);
-            if (ch >= 0)
-            {
-                out.kind = ResponseKind::InputStatus;
-                out.channel = ch;
-                out.inputState = InputState::Off;
-                return true;
-            }
-        }
-        else if (StartsWithNoCase(line, "ON"))
-        {
-            int ch = ParseTrailingChannel(line, 2);
-            if (ch >= 0)
-            {
-                out.kind = ResponseKind::InputStatus;
-                out.channel = ch;
-                out.inputState = InputState::On;
-                return true;
-            }
-        }
-        else if (StartsWithNoCase(line, "OK"))
-        {
-            int ch = ParseTrailingChannel(line, 2);
-            if (ch >= 0)
-            {
-                out.kind = ResponseKind::Acknowledge;
-                out.channel = ch;
-                return true;
-            }
+
+            bytesConsumed = pos + 1; // not the start of any known response: skip one byte and resync
+            return false;
         }
 
-        // Unrecognized line - still fully consumed, reported as such so the
-        // caller can decide whether to log/ignore it.
+        const size_t channelPos = pos + std::strlen(matched->prefix);
+        if (channelPos >= buffer.size())
+        {
+            bytesConsumed = pos; // prefix complete, channel character not received yet
+            return false;
+        }
+
+        const uint8_t c = buffer[channelPos];
+        int channel;
+        if (c == 'A' || c == 'a')
+            channel = 0; // "all channels"
+        else if (c >= '0' && c <= '9')
+            channel = c - '0';
+        else
+        {
+            bytesConsumed = pos + 1; // malformed: skip one byte and resync
+            return false;
+        }
+
+        // Swallow any padding that immediately follows the token; whatever
+        // has not arrived yet will be skipped by the next call.
+        size_t end = channelPos + 1;
+        while (end < buffer.size() && IsSeparator(buffer[end]))
+            ++end;
+
         out = DecodedResponse{};
-        out.kind = ResponseKind::Unrecognized;
+        out.kind = matched->kind;
+        out.channel = channel;
+        out.relayState = matched->relayState;
+        out.inputState = matched->inputState;
+        bytesConsumed = end;
         return true;
     }
 

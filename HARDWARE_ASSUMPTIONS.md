@@ -1,149 +1,116 @@
-# Hardware assumptions to verify
+# Hardware assumptions still to verify
 
-This file centralizes every point in the code that currently relies on an
-**assumption** (deduced from the datasheet, or a "reasonable" guess),
-since no physical UD85C08 board was available during development. Each
-point links back to the corresponding source file/comment.
+The first bench tests on a physical board are done: what they established
+is recorded in [`DEVICE_BEHAVIOR.md`](DEVICE_BEHAVIOR.md), and the codecs
+now follow it. This file only lists what is **still open** (assumed, or
+never exercised on the real device), plus a short record of what the
+bench tests settled.
 
-**To do as soon as the board is available**: go through this list in
-order, check items off as you go, and fix the code (and its comment) if
-reality differs from the assumption.
+## Settled by the bench tests
 
----
+- [x] AT command terminator: none required (we no longer send CR/LF).
+- [x] AT response framing: irregular; handled by prefix recognition.
+- [x] Response to `AT+Rx`, `AT+Tx`, `AT+Lx`, `AT+Mx`, `AT+Dx=`: `OpenN` / `CloseN`.
+- [x] Meaning of the digit in `OKx`: the G mode that was set.
+- [x] `AT+AO` / `AT+AC` reply with `OpenA` / `CloseA` (channel 0 = all).
+- [x] HEX responses to Toggle / Interlock / Momentary / Read status: same
+  frame format as Open / Close.
+- [x] HEX Read input: command byte `0x81` (grounded) / `0x82` (floating).
+- [x] HEX "set I/O relation" is acknowledged by echoing the command frame.
+- [x] HEX checksum formula (also holds for every response).
+- [x] No echo of sent commands; no unsolicited messages (polling required).
+- [x] Timeouts: the board answers in about 17-20 ms, so the 500 ms query
+  timeout and 300 ms polling timeout are very generous (kept on purpose).
+- [x] `CSerialPort2::Read` with the chosen `COMMTIMEOUTS` behaves as
+  intended: queries return and time out cleanly.
+- [x] CH340 driver, `COM6` and `\\.\COM6` port name forms.
+- [x] Why Momentary / Delay never fell back under polling: reading the state
+  of the pulsing relay cancels its pulse (see `DEVICE_BEHAVIOR.md`); any
+  other traffic is harmless. The polling now skips that relay while its
+  pulse runs. Confirmed on the real board with `--probe-pulse 1` in AT,
+  in HEX and (AT only) for Delay: the library's own polling lets the pulse
+  fall back (scenario 7), while the raw relay-status read still cancels it
+  (scenarios 4 and 6). The GUI also behaves correctly.
+- [x] Latch (`AT+Lx` / HEX Interlock) exclusivity, in both protocols:
+  latching channel 2 closes channel 1, and latching channel 1 also closes
+  an unrelated channel 5 that had been opened. No message reports any of
+  it, and reading the status afterwards returns the right state.
+- [x] Ports above COM9: `COM12` fails, `\\.\COM12` works; the library now
+  always adds the prefix (`PortName.h`), so either form can be passed.
+  Confirmed on the real board with a bare `--port COM12` after the fix.
+- [x] `--read-input` works on the real board in AT and HEX, with the input
+  both floating and tied to ground (after the decoder fixes).
+- [x] USB unplug during `--monitor-inputs`: a single "Connection lost"
+  event is raised and polling stops (previously an endless error stream).
 
-## AT protocol (ASCII)
+## Still open
 
-- [ ] **Line terminator for sent commands.** Currently `\r\n` is appended
-  after every command (`AT+O3\r\n`...). The datasheet does not specify the
-  terminator expected by the firmware.
-  → `Core/src/AtCommandCodec.cpp`, `BuildSimple` / `EncodeDelay`.
+- [x] **Length of a Momentary command pulse:** 0.8 to 1.0 s, identical in AT
+  and HEX (`--measure-pulse 1`; not the 0.5 s of the datasheet). The relay
+  is now left unread for 2 s after a Momentary command (Delay: requested
+  time + 1 s). The self-tests cannot tell 1 s from 2 s here (in the
+  simulation the read lands just after the pulse either way): the value
+  rests on the measurement.
 
-- [ ] **Line terminator for received responses.** The decoder accepts
-  `\r`, `\n`, or `\r\n` as a line ending, to be safe. Confirm/simplify once
-  the real behaviour is known.
-  → `Core/src/AtCommandCodec.cpp`, `TryDecode`.
+- [x] **G1 on the real board.** A relay switched by its input is reported
+  after the protection delay of an unknown relation (2 s now), as designed.
+  With the relation known the delay is gone (see below).
 
-- [ ] **Response to `AT+Rx` (read status).** Assumed to have the same
-  format as the spontaneous response to `AT+Ox`/`AT+Cx`, i.e.
-  `OpenX`/`CloseX`. The datasheet gives no explicit example for `Rx`.
+- [x] **G3 cannot be made reliable while relays are being read** (see
+  `DEVICE_BEHAVIOR.md`): a tap shorter than one polling round goes unseen, and
+  the next relay read cancels the pulse. Settled by not reading relays at all
+  once the library knows the board is in G3.
 
-- [ ] **Response (or lack thereof) to `AT+Tx`, `AT+Lx`, `AT+Mx`
-  (Toggle/Latch/Momentary).** The current `Controller` sends these as
-  "fire-and-forget" (`SendToggle`, `SendLatch`, `SendMomentary`) without
-  waiting for/checking a response, precisely because the format is not
-  guaranteed. If the firmware does answer with `OpenX`/`CloseX` like
-  Open/Close, these could be turned into confirmed requests (like
-  `QueryRelayStatus`).
-  → `Core/src/UD85C08_Controller.cpp`, `SendToggle`/`SendLatch`/`SendMomentary`.
+- [x] **Decision: how the library learns the input relation: option A.** The
+  GUI sends its combo's relation at every Connect, so board and combo always
+  agree and the library knows the relation
+  (`SendSetInputOutputRelation` records it once the board acknowledges).
+  `SetKnownInputOutputRelation` informs the library without sending anything,
+  for consumers that must not touch the board's mode (the CLI's
+  `--monitor-inputs --relation N`). The relation is forgotten on `Connect`.
 
-- [ ] **Exact meaning of the digit in the `OKx` response to `AT+Gx`.**
-  Assumed to be the relation that was applied (0-3); to confirm.
+- [x] **Input relation awareness, on the real board.** Confirmed with the
+  GUI: in G3 the relay falls back every time (including very short taps) and
+  its LED does not show the pulse; in G0/G1/G2 a relay switched by its input
+  shows up at once; Connect sends the combo's relation first and refuses a
+  port where the board does not answer.
 
-- [ ] **Response format for `AT+AO` / `AT+AC` (open/close all).** The
-  datasheet mentions `OpenA`/`CloseA` in its list of possible responses
-  (X = 1..8/A), so `channel == 0` is treated as "all channels" in
-  `DecodedResponse`, but this has not been verified.
+- [ ] **Momentary / Delay fall-back in HEX.** For AT it is confirmed that
+  nothing is sent when the relay falls back. Not recorded for HEX.
 
-## HEX protocol (8-byte frames)
+- [ ] **Recovery after a USB unplug.** Unplugging is now handled (see the
+  settled list). Still to check: after replugging, does `Disconnect()`
+  followed by `Connect()` recover the port, or does Windows keep a stale
+  handle (or assign a new COM number)?
 
-- [x] **Checksum formula.** Verified programmatically against EVERY
-  worked example in the datasheet
-  (`checksum = sum of the first 7 bytes mod 256`). This point is solid,
-  not a mere assumption.
+- [ ] **Bursts of back-to-back queries.** Polling will issue 8 (or 16)
+  queries in a row. Confirm that no answer is lost or merged with
+  another at that pace.
 
-- [ ] **Response format for Toggle (0x03), Interlock (0x04), Momentary
-  (0x05), Read status (0x00), Read input (0x09), Set I/O relation
-  (0x0A).** The datasheet ONLY documents the responses to Open (0x01) and
-  Close (0x02) in its "2 return command" section. `HexFrameCodec::TryDecode`
-  only recognizes those two cases; everything else currently falls back to
-  `ResponseKind::Unrecognized`.
-  → `Core/src/HexFrameCodec.h` (see the header comment) and
-  `Core/src/HexFrameCodec.cpp`, `TryDecode`.
+- [ ] **Refresh latency of the polling.** One round is 16 queries (8 relays
+  + 8 inputs) at ~20 ms each, i.e. roughly 0.3-0.4 s plus the pause between
+  rounds. Measure how long a state change really takes to reach the LEDs
+  on the real board, and tune the polling interval if needed.
 
-- [ ] **`Controller::QueryRelayStatus` in HEX mode for a "Read status"
-  (0x00) command.** Since the response to Read status is not documented,
-  this query is likely to systematically time out in practice until the
-  real response format is added to the decoder.
+- [ ] **Silent board detection.** With the USB cable plugged but the
+  board's 12/24 V supply off (or the wrong COM port selected), polling
+  should raise one `TransportError` with `errorCode == Timeout` after
+  about 1.6 s, and stop. Only checked against a mock so far.
 
-- [ ] **`Controller::QueryInputStatus` in HEX mode.** Same remark: the
-  response to "Read input" (0x09) is not documented.
+## GUI design - live LEDs (Core done, GUI wiring to validate)
 
-## Transport / serial link
+The measurements settled the design, now implemented in `Controller`:
 
-- [ ] **Real behaviour of `CSerialPort2::Read` with the `COMMTIMEOUTS`
-  used.** Configuration chosen: `ReadIntervalTimeout = MAXDWORD`,
-  `ReadTotalTimeoutMultiplier = 0`, `ReadTotalTimeoutConstant = timeoutMs`.
-  Per the Win32 documentation this should give "return immediately if
-  data is already available, otherwise wait up to timeoutMs" — never
-  observed on a real port.
-  → `Core/src/SerialTransport.cpp`, `Read`.
+- `StartPolling` reads the 8 relays **and** the 8 inputs each round and
+  raises `RelayStateChanged` / `InputStateChanged`. The first round reports
+  every channel, so a display can initialise itself.
+- Every `Send*` waits for the board's answer (250 ms at most) and publishes
+  the relay state it reports (`SendLatch` also reports the other relays
+  closed). A silent port is reported as `Timeout`.
+- Polling stops by itself after ONE `TransportError`, when the link fails
+  or when a whole round gets no answer.
+- `Connect` discards bytes left over from an earlier session.
 
-- [ ] **Port name format.** `Controller::Connect` (via
-  `CUD85C08_GUIDlg::BuildPortPath`) now always builds the `\\.\COMx`
-  extended form, for every port number (not just above COM9, as
-  originally assumed here). Never verified end-to-end against a real
-  device on either a low-numbered (COM1-9) or a high-numbered (COM10+)
-  port - confirm both work.
-
-- [ ] **CH340 driver.** Assumed to be natively present on recent
-  Windows 10/11 (confirmed via a web search at design time), but not
-  verified on the actual development machine.
-
-- [ ] **Echo of the sent command.** Some serial devices echo the received
-  command back before their own response. Nothing in the current code
-  filters a potential echo — if the firmware produces one, the AT/HEX
-  decoder could misinterpret the first bytes received. Worth watching
-  during the first real test (inspect the raw received bytes, e.g. via
-  RealTerm run in parallel).
-
-## Default values / tuning
-
-- [ ] **Default timeouts** (`QueryRelayStatus`/`QueryInputStatus` = 500 ms,
-  internal polling = 300 ms). Arbitrary "reasonable" values; to be tuned
-  once the board's real latency is known (likely very fast over local
-  USB-serial, so these values are deliberately generous).
-
-- [ ] **Default polling interval** (`StartInputPolling`, 200 ms). Same
-  remark, to be tuned based on desired responsiveness vs. load on the
-  link.
-
----
-
-## GUI design questions (open, deliberately deferred)
-
-Raised while designing the relay/input LED refresh mechanism (paused -
-see README.md "Next step"); noted here so they are not lost before
-resuming that work.
-
-- [ ] **How should the relay LEDs reflect state after a `Send*` command?**
-  Three options were considered: (a) optimistic - flip the LED as soon as
-  the write succeeds, without confirmation; (b) confirmed - follow up
-  with a status query before updating the LED; (c) optimistic + periodic
-  correction poll. (b) and (c) are blocked on the undocumented HEX
-  response formats above. Leaning towards (a) for a first version, with
-  (c) added later once those formats are confirmed.
-
-- [ ] **Momentary/Delay modes leave the LED "stuck ON".** With an
-  optimistic update, clicking a Momentary or Delay button would turn the
-  relay LED on, but the firmware auto-closes the relay on its own
-  (after ~500 ms for Momentary, or the configured delay) without
-  notifying the host - so the LED would stay lit after the relay has
-  actually closed, unless a periodic confirmation poll (see above) is
-  in place. Not solved by an application-side timer mimicking the
-  firmware's timing, as that would be guessing at behaviour that should
-  instead be observed on the real device.
-
-## Suggested first tests once the board arrives
-
-1. Open a serial terminal (RealTerm/Termite/PuTTY) at 9600,N,8,1 on the
-   board's COM port, send `AT+O1` by hand, observe the raw bytes received
-   (terminator, exact content) → addresses the AT points above.
-2. Do the same with a raw HEX frame (e.g. Open channel 1:
-   `55 56 00 00 00 01 01 AD`) and observe the raw response → addresses the
-   HEX points above.
-3. Once these two points are confirmed, run
-   `UD85C08_CLI.exe --port COMx --open 1` (HEX) then
-   `--protocol at --port COMx --open 1` (AT) and compare against the
-   expected behaviour.
-4. Test `--read-relay` / `--read-input` last, once the response formats
-   have been confirmed in steps 1/2.
+Still to validate on the real board with the GUI: the LEDs follow the
+relays and inputs, the lost-link message, and the "board not answering"
+message (see the open items above).
