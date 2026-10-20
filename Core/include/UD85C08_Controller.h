@@ -135,8 +135,9 @@ namespace UD85C08
         // After SendMomentary / SendDelay, the polling leaves that one relay
         // unread until its pulse is over (plus a safety margin), because
         // reading it would cancel the pulse. Everything else keeps being
-        // polled, and the relay's LED/state then updates to "closed" about a
-        // second after the pulse ends.
+        // polled, and the relay's LED/state then updates to "closed" a little
+        // after the pulse ends (the relay is left alone for about 2 s after a
+        // Momentary command, the requested time + 1 s after a Delay).
         //
         // The board can also act on a relay by itself when an input changes
         // (input relations G1..G3). What the polling does about it depends on
@@ -146,6 +147,18 @@ namespace UD85C08
         // left unread for 2 s after its input changed (a G3 pulse lasts 0.9 to
         // 1.3 s), which reports relay changes about two seconds late and can
         // still be fooled by a tap shorter than one polling round.
+        //
+        // The thread stops by itself, after raising ONE
+        // EventType::TransportError, when:
+        //  - the link fails (a non-timeout error): the USB cable was
+        //    unplugged, or the board lost power - on this board, cutting the
+        //    supply makes the COM port disappear from Windows; or
+        //  - a whole round gets no answer at all (errorCode == Timeout): the
+        //    port is open but nothing answers, i.e. it is not the board's
+        //    port, or the board's firmware is not responding.
+        // The consumer should then react (typically Disconnect(), refresh
+        // its list of COM ports, and reconnect once the board is back);
+        // StopPolling() remains safe to call afterwards.
         void StartPolling(int pollIntervalMs = 100);
         void StopPolling();
 

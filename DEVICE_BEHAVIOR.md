@@ -1,7 +1,7 @@
 # Measured device behavior
 
 What a physical UD85C08 board actually does, as measured on the bench
-(Windows, CH340 USB-serial, 9600 8N1, seen as COM6). Where this differs
+(Windows, USB serial, 9600 8N1, seen as COM6). Where this differs
 from, or completes, the manufacturer's datasheet, **this file is the
 reference** - the codecs in `Core/src/` are written against it.
 
@@ -18,6 +18,7 @@ Items still unverified are listed in `HARDWARE_ASSUMPTIONS.md`.
 | `G` mode persistence | **Persistent**: the mode survives a power cycle. |
 | Port name | Up to COM9 both `COM6` and `\\.\COM6` open. From COM10 up only the extended form works: `COM12` fails, `\\.\COM12` works (a Windows rule, not specific to the board). `SerialTransport` always adds the prefix. |
 | Driver | Port appeared on its own (CH340). |
+| Power | Cutting the board's supply makes the COM port **disappear from Windows** (observed). The explanation given is that the USB serial part is handled by the board's own microcontroller rather than by a separate bus-powered chip (the datasheet mentions a CH340). Either way, a power cut looks exactly like an USB unplug to the software. |
 
 ## AT protocol
 
@@ -126,12 +127,19 @@ relay stays on, then falls at the next press or the one after.
 
 ## Consequences for the software
 
-- **Polling is mandatory** for both the input LEDs and the relay LEDs.
-- A relay can change state **without any host command**: Momentary and
-  Delay fall back silently, Latch closes the other channels silently, and
-  in the `G1`..`G3` input/output relations the physical inputs drive the
-  relays directly. Relay state must therefore be polled, not inferred from
-  the commands that were sent.
+- **Polling is mandatory**: the board never speaks first.
+- A relay can change state **without any host command**: Momentary and Delay
+  fall back silently, Latch closes the other channels silently, and in the
+  `G1`..`G3` input/output relations the physical inputs act on the relays
+  directly. So relay states are polled - **except in G3**, where the board
+  pulses a relay by itself at unpredictable moments and a relay read would
+  cancel the pulse: there the relays are never read.
+- **Reading a relay's state is not free**: it cancels a running Momentary,
+  Delay or G3 pulse. A relay is therefore left unread while its own pulse
+  runs (Momentary 0.8-1.0 s, Delay = the requested time, G3 0.9-1.3 s, plus
+  margins). Reading inputs, or other relays, is harmless.
+- The library has to know the input relation (the board cannot be asked, and
+  remembers it across power cycles): the GUI sends it at every Connect.
 - Every command is answered within about 20 ms, so a command that gets no
   answer at all is a meaningful signal (nothing, or the wrong device, is
   on that port).

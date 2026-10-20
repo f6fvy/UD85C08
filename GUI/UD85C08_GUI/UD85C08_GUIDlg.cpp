@@ -173,6 +173,10 @@ HCURSOR CUD85C08_GUIDlg::OnQueryDragIcon()
 
 void CUD85C08_GUIDlg::PopulateComPortList()
 {
+	CString previousPort;
+	if (m_comboPort.GetCurSel() != CB_ERR)
+		m_comboPort.GetLBText(m_comboPort.GetCurSel(), previousPort);
+
 	m_comboPort.ResetContent();
 
 	HKEY hKey;
@@ -223,7 +227,10 @@ void CUD85C08_GUIDlg::PopulateComPortList()
 	for (const CString& name : portNames)
 		m_comboPort.AddString(name);
 
-	if (m_comboPort.GetCount() > 0)
+	int index2 = previousPort.IsEmpty() ? CB_ERR : m_comboPort.FindStringExact(-1, previousPort);
+	if (index2 != CB_ERR)
+		m_comboPort.SetCurSel(index2);
+	else if (m_comboPort.GetCount() > 0)
 		m_comboPort.SetCurSel(0);
 }
 
@@ -303,7 +310,7 @@ void CUD85C08_GUIDlg::OnBnClickedButtonConnect()
 
 		CString msg;
 		if (relationResult.code == UD85C08::ResultCode::Timeout)
-			msg = _T("The board does not answer on this port. Check the COM port and the board's power supply.");
+			msg = _T("Nothing answers on this port. Check that it is the board's COM port.");
 		else
 			msg.Format(_T("Could not talk to the board (%hs)."), UD85C08::ToString(relationResult.code));
 		AfxMessageBox(msg, MB_ICONERROR);
@@ -641,8 +648,9 @@ void CUD85C08_GUIDlg::HandleConnectionLost(UD85C08::ResultCode code)
 
 	CString msg;
 	if (code == UD85C08::ResultCode::Timeout)
-		msg = _T("The board does not answer on this port. Check the COM port and the board's power supply.");
+		msg = _T("Nothing answers on this port. Check that it is the board's COM port.");
 	else
-		msg.Format(_T("Connection lost (%hs). Check the cable, then reconnect."), UD85C08::ToString(code));
+		msg = _T("Connection lost: the board was unplugged or lost power. "
+			"Reconnect it, click Refresh, then connect again.");
 	AfxMessageBox(msg, MB_ICONWARNING);
 }

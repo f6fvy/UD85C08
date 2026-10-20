@@ -4,6 +4,43 @@ History of UD85C08's development steps. No formal version numbering yet
 (no first version validated on real hardware yet): entries describe
 progress in order.
 
+## Step 19 — Validation on the board, and publishing to `dist/`
+
+- Validated with the real board and the GUI: connection lost (power cut or
+  USB unplug) gives one alert and a clean return to "disconnected", and
+  reconnecting works after Refresh; a port that is not the board's is
+  refused at Connect; `--selftest` reports 109/109 under MSVC in Debug and
+  Release. (GUI side: messages reworded, Refresh keeps the selected port.)
+- **Post-build step for `dist/`** on the `UD85C08` (Core) project: copies
+  `Core/include/*.h` to `dist/include/` and `UD85C08.lib` to
+  `dist/lib/<Platform>/<Configuration>/` (two `xcopy` commands, see
+  `README.md`). New `dist/README.md` explains the layout and what another
+  solution must set and match (include/library directories, platform, C++17,
+  MFC shared DLL / dynamic runtime).
+- **`.gitignore`**: `dist/` is generated, so it is no longer versioned
+  except its README (the old rules would have committed the `.lib` binaries
+  and a second copy of the headers). Checked with `git check-ignore`.
+
+## Step 18 — The board's power and its COM port; a documentation regression fixed
+
+- Information from the bench: removing the board's power makes the COM
+  port disappear from Windows (explained as the USB serial part being
+  handled by the board's own microcontroller rather than a separate
+  bus-powered chip; the datasheet mentions a CH340 - the observation is what
+  matters). Consequences: a power cut is the same event as an USB
+  unplug for the software; the "port open but board unpowered" case I had
+  assumed does not exist. A `Timeout` from a first command or from polling
+  now means "not the board's port" or "firmware not responding".
+- Wording fixed in `HARDWARE_ASSUMPTIONS.md` (two open items rewritten),
+  `DEVICE_BEHAVIOR.md` (new "Power" line) and the GUI messages proposed in
+  step 17 (a lost connection now says the board was unplugged or lost power;
+  a Timeout no longer blames the power supply).
+- **Regression found and fixed in `UD85C08_Controller.h`:** the paragraph
+  documenting that polling stops by itself after ONE `TransportError` (link
+  lost, or a whole round without an answer) had been deleted by an index-
+  based replacement made in step 17. Restored, with the corrected wording.
+  Code and tests were not affected (109/109).
+
 ## Step 17 — The library knows the input relation (option A)
 
 Follows from step 16: relays cannot be read safely in G3, so the library has
