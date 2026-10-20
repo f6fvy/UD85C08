@@ -105,6 +105,14 @@
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)include\*.h" "$(SolutionDir)dist\include\"
+
+xcopy /Y /I /Q "$(TargetPath)" "$(SolutionDir)dist\lib\$(Platform)\$(Configuration)\"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Publishing UD85C08.lib and public headers to dist\</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -124,6 +132,14 @@
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)include\*.h" "$(SolutionDir)dist\include\"
+
+xcopy /Y /I /Q "$(TargetPath)" "$(SolutionDir)dist\lib\$(Platform)\$(Configuration)\"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Publishing UD85C08.lib and public headers to dist\</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -141,6 +157,14 @@
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)include\*.h" "$(SolutionDir)dist\include\"
+
+xcopy /Y /I /Q "$(TargetPath)" "$(SolutionDir)dist\lib\$(Platform)\$(Configuration)\"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Publishing UD85C08.lib and public headers to dist\</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -160,6 +184,14 @@
       </SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /Y /I /Q "$(ProjectDir)include\*.h" "$(SolutionDir)dist\include\"
+
+xcopy /Y /I /Q "$(TargetPath)" "$(SolutionDir)dist\lib\$(Platform)\$(Configuration)\"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Publishing UD85C08.lib and public headers to dist\</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
