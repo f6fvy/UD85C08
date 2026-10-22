@@ -7,6 +7,7 @@ USB serial link (CH340 chip), dual protocol: AT (ASCII) or HEX
 
 See also:
 - [`CHANGELOG.md`](CHANGELOG.md) — history of the project's steps
+- [`LICENSE`](LICENSE) - MIT licence of this project's own code (see "License" below)
 - [`DEVICE_BEHAVIOR.md`](DEVICE_BEHAVIOR.md) — what the real board
   actually does, as measured on the bench (the codecs follow it)
 - [`HARDWARE_ASSUMPTIONS.md`](HARDWARE_ASSUMPTIONS.md) — what is still
@@ -115,3 +116,14 @@ fall-back reporting in HEX, polling latency, bursts of queries). The planned
 third project (Latch mode + input reading, in its own solution consuming
 `dist/`) is not started. A licence for this repository's own code still has
 to be chosen before it goes public.
+
+## License
+
+The code of this project is released under the [MIT License](LICENSE),
+Copyright (c) 2026 Laurent HAAS.
+
+That licence covers **only the files of this repository**. In particular it does
+not cover `Core/third_party/naughter/SerialPort.h` (CSerialPort2 by PJ Naughter,
+used for the Win32 serial port access): that file is **not** part of this
+repository, you download it yourself and it stays under its author's own
+licence, see `Core/third_party/naughter/README.md`.

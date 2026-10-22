@@ -4,6 +4,15 @@ History of UD85C08's development steps. No formal version numbering yet
 (no first version validated on real hardware yet): entries describe
 progress in order.
 
+## Step 21 — Licence
+
+- Added `LICENSE` (MIT, Copyright (c) 2026 Laurent HAAS) and a "License"
+  section in `README.md`, which states that the licence covers only the
+  files of this repository and not `SerialPort.h` (CSerialPort2, PJ Naughter),
+  which is deliberately not in the repository and keeps its author's licence.
+- The LED indicator (`LedControl`) was written from scratch, so nothing of
+  the old CodeGuru class with unclear terms is in the repository.
+
 ## Step 20 — 32-bit (x86) build validated
 
 - Switching the solution platform to x86 (`Win32` in the projects) gives a
