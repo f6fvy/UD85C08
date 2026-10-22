@@ -103,7 +103,8 @@ Should print `109/109 tests passed.` — no hardware required.
 
 Build the `UD85C08` project (x64, Debug and/or Release), then follow
 `dist/README.md`: include directory, library directory, `UD85C08.lib`, and
-the build settings the consumer must match (platform, C++17, MFC shared DLL).
+the build settings the consumer must match (platform x64 or x86, C++17, MFC
+shared DLL). Both x64 and x86 builds of this solution are validated.
 
 ## Next step
 

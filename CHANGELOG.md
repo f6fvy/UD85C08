@@ -4,6 +4,27 @@ History of UD85C08's development steps. No formal version numbering yet
 (no first version validated on real hardware yet): entries describe
 progress in order.
 
+## Step 20 — 32-bit (x86) build validated
+
+- Switching the solution platform to x86 (`Win32` in the projects) gives a
+  working 32-bit build of the library, the CLI and the GUI: everything
+  compiles, `UD85C08_CLI --selftest` reports 109/109, and the GUI works
+  normally (confirmed on the real board).
+- Before that, the portable part had been compiled with `g++ -m32` here and
+  run as a 32-bit executable (109/109, three runs, no warning), and two
+  Windows-specific points had been reviewed by hand: the `LPARAM` packing in
+  the GUI (`channel << 16`) fits in 32 bits, and the
+  `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` key is not redirected for 32-bit
+  processes under WOW64.
+- The 32-bit library is published by the same post-build step, under
+  `dist/lib/Win32/<Configuration>/` (`$(Platform)` is `Win32`).
+- Stale comments fixed (code comments only, no behaviour change):
+  `SerialTransport.h` and `CLI/main.cpp` still said that the code had never
+  been tried on a real board, and `SerialTransport.h` credited the polling
+  thread with keeping a GUI's message loop free, which is true of the
+  polling but not of `Send*`/`Query*`.
+- Decision kept: `dist/` stays unversioned (generated binaries).
+
 ## Step 19 — Validation on the board, and publishing to `dist/`
 
 - Validated with the real board and the GUI: connection lost (power cut or

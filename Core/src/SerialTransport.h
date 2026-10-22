@@ -4,14 +4,13 @@
 //
 // Uses CSerialPort2 in blocking (non-overlapped) mode: simplest possible
 // integration, matching the synchronous nature of ISerialTransport::Read/
-// Write. The higher-level worker thread inside Controller is what keeps
-// this from blocking a GUI's message loop (see project notes / README).
+// Write. Controller's polling thread keeps the periodic reads off a GUI's
+// message loop; a Send*/Query* call, on the other hand, blocks its caller
+// for the duration of the exchange (about 20 ms on the real board, at most
+// the command/query timeout if the board stays silent).
 //
-// NOTE: this class has been written against the validated CSerialPort2
-// API (see third_party/naughter/SerialPort.h) but has not yet been
-// exercised against a physical UD85C08 board - no hardware was
-// available at the time this was written. Treat the exact timeout
-// behaviour as provisional until verified with real hardware.
+// Validated on the real board (open, read/write, timeouts, COM10+ names,
+// unplug), in both 64-bit and 32-bit builds.
 
 #pragma once
 

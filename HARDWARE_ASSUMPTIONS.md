@@ -81,6 +81,9 @@ bench tests settled.
   `TransportError(Timeout)` after about 1.6 s and stops; that case is
   covered by a self-test against a simulated board.)
 
+- [x] **32-bit (x86) build.** The library, the CLI and the GUI build for x86;
+  `--selftest` reports 109/109 and the GUI works normally with the board.
+
 - [x] **Self-tests under MSVC.** `UD85C08_CLI --selftest` reports 109/109 in
   both Debug and Release under Visual Studio 2022 (all earlier runs were
   under GCC on Linux).

@@ -43,7 +43,9 @@ a Release build the Release one. In the code:
 The consumer must match how the library was built, otherwise the link fails or
 the program misbehaves:
 
-- **Platform**: x64 (the one published so far).
+- **Platform**: x64 or x86, whichever the consumer is built for. The library
+  is published under `lib/x64/...` and `lib/Win32/...` (`$(Platform)` is
+  `Win32` for the "x86" solution platform); both were built and tested.
 - **Configuration**: Debug with Debug, Release with Release.
 - **C++ Language Standard**: `/std:c++17`.
 - **MFC**: "Use MFC in a shared DLL", and therefore the dynamic runtime

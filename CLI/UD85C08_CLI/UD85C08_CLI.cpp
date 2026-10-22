@@ -3,13 +3,10 @@
 // A small command-line tool to drive a UD85C08 board, and to run the
 // library's self-tests (which need no hardware at all).
 //
-// NOTE: the --port / --open / --close / ... commands below have been
-// written against the public UD85C08::Controller API and compile
-// cleanly, but have not yet been exercised against a physical board
-// (none was available while writing this). Expect to iron out a few
-// details (exact response timing, port name format, ...) once real
-// hardware is on the desk - see the comments in SerialTransport.cpp /
-// AtCommandCodec.cpp / HexFrameCodec.h for the specific open points.
+// The hardware commands (--open, --close, --read-relay, --monitor-inputs, ...)
+// and the diagnostics (--probe-pulse, --measure-pulse, --probe-input-pulse)
+// are validated on a real board, in AT and in HEX. What the board really does
+// is documented in DEVICE_BEHAVIOR.md.
 
 #include "UD85C08_SelfTest.h"
 #include "UD85C08_Controller.h"
