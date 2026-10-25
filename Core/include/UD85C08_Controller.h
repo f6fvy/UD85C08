@@ -29,6 +29,7 @@
 #pragma once
 
 #include "UD85C08_Types.h"
+#include "UD85C08_Version.h"
 #include "UD85C08_ISerialTransport.h"
 #include <memory>
 #include <string>

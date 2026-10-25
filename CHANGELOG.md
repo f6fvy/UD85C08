@@ -1,8 +1,12 @@
 # Changelog
 
-History of UD85C08's development steps. No formal version numbering yet
-(no first version validated on real hardware yet): entries describe
-progress in order.
+History of UD85C08's development steps, in order. The library follows
+Semantic Versioning (`Core/include/UD85C08_Version.h`, `UD85C08_CLI --version`).
+
+## Version 1.0.0
+
+First release: Core library, CLI and GUI, validated on a real board in AT
+and HEX, 32- and 64-bit. It includes everything up to step 23 below.
 
 ## Step 23 — Polling masks (read only some relays / inputs)
 

@@ -10,6 +10,7 @@
 
 #include "UD85C08_SelfTest.h"
 #include "UD85C08_Controller.h"
+#include "UD85C08_Version.h"
 
 #include <iostream>
 #include <string>
@@ -30,6 +31,9 @@ namespace
     {
         std::cout <<
             "UD85C08_CLI - command-line control of the UD85C08 8DI-8DO USB relay board\n"
+            "\n"
+            "  UD85C08_CLI --version\n"
+            "      Prints the library version.\n"
             "\n"
             "  UD85C08_CLI --selftest\n"
             "      Runs the codec/controller self-tests. No hardware required.\n"
@@ -789,6 +793,12 @@ int main(int argc, char* argv[])
     if (args.empty() || args[0] == "--help" || args[0] == "-h")
     {
         PrintUsage();
+        return 0;
+    }
+
+    if (args[0] == "--version")
+    {
+        std::cout << "UD85C08 " << UD85C08::VersionString << "\n";
         return 0;
     }
 

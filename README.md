@@ -52,6 +52,8 @@ UD85C08/
 
 ## Current status
 
+Version 1.0.0 (Semantic Versioning, see `CHANGELOG.md`).
+
 | Component | Status |
 |---|---|
 | `AtCommandCodec` / `HexFrameCodec` | Done, validated by self-tests against the datasheet |
