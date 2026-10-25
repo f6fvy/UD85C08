@@ -20,6 +20,21 @@ namespace UD85C08
     using Channel = int;
 
     // ------------------------------------------------------------------
+    // Channel mask: bit 0 = channel 1 ... bit 7 = channel 8.
+    // Used to restrict which relays / inputs the polling reads.
+    // ------------------------------------------------------------------
+    using ChannelMask = uint8_t;
+    constexpr ChannelMask AllChannels = 0xFF;
+    constexpr ChannelMask NoChannels  = 0x00;
+
+    constexpr ChannelMask ChannelBit(Channel channel) noexcept
+    {
+        return (channel >= 1 && channel <= ChannelCount)
+            ? static_cast<ChannelMask>(1u << (channel - 1))
+            : static_cast<ChannelMask>(0);
+    }
+
+    // ------------------------------------------------------------------
     // Relay operating modes (see AT / HEX protocol documentation)
     // ------------------------------------------------------------------
     enum class RelayMode

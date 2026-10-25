@@ -14,7 +14,7 @@ Items still unverified are listed in `HARDWARE_ASSUMPTIONS.md`.
 | AT command terminator | **None required.** `AT+O1` alone is enough, no CR/LF. |
 | Echo | **None.** The board never repeats what it receives. |
 | Unsolicited messages | **None.** A changing input or relay is never reported spontaneously, so the host **must poll**. |
-| Response latency | AT: about 17 ms. HEX: about 20 ms (command sent -> response received). |
+| Response latency | Measured over 1600 queries each (`--stress-test`): AT **14.6 ms** on average (12.3-17.4 ms), HEX **20.0 ms** (19.7-20.6 ms). No answer lost. |
 | `G` mode persistence | **Persistent**: the mode survives a power cycle. |
 | Port name | Up to COM9 both `COM6` and `\\.\COM6` open. From COM10 up only the extended form works: `COM12` fails, `\\.\COM12` works (a Windows rule, not specific to the board). `SerialTransport` always adds the prefix. |
 | Driver | Port appeared on its own (CH340). |
@@ -52,7 +52,7 @@ Frames are 8 bytes; the checksum is the sum of the first 7 bytes modulo
 | Read status ch1 | `55 56 00 00 00 01 00 AC` | `33 3C 00 00 00 01 02 72` (closed) or `33 3C 00 00 00 01 01 71` (open) |
 | Toggle ch1 | `55 56 00 00 00 01 03 AF` | `33 3C 00 00 00 01 01 71` (state after the command) |
 | Interlock ch1 | `55 56 00 00 00 01 04 B0` | `33 3C 00 00 00 01 01 71` |
-| Momentary ch1 | `55 56 00 00 00 01 05 B1` | `33 3C 00 00 00 01 01 71` |
+| Momentary ch1 | `55 56 00 00 00 01 05 B1` | `33 3C 00 00 00 01 01 71` (only reply: no echo, and no frame when the relay falls back) |
 | Read input ch1 | `55 56 00 00 00 01 09 B5` | `33 3C 00 00 00 01 82 F2` (floating) / `33 3C 00 00 00 01 81 F1` (tied to ground) |
 | All open | `55 56 00 00 00 00 07 B2` | `33 3C 00 00 00 00 01 70` |
 | All close | `55 56 00 00 00 00 08 B3` | `33 3C 00 00 00 00 02 71` |

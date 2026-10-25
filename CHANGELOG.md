@@ -4,6 +4,46 @@ History of UD85C08's development steps. No formal version numbering yet
 (no first version validated on real hardware yet): entries describe
 progress in order.
 
+## Step 23 — Polling masks (read only some relays / inputs)
+
+- `Controller::StartPolling(pollIntervalMs, relayMask, inputMask)` and
+  `Controller::SetPollingMasks(relayMask, inputMask)`; new `ChannelMask`,
+  `AllChannels`, `NoChannels`, `ChannelBit()` in `UD85C08_Types.h`
+  (bit 0 = channel 1 ... bit 7 = channel 8). Fewer reads means a shorter
+  polling round.
+- An unspecified mask means `AllChannels` (read everything); an explicit
+  `NoChannels` (0) means read none of that kind. Both masks at 0 are allowed:
+  the thread idles (no link-loss detection until the next command).
+- A relay that is not polled is still reported after a `Send*` command. With
+  an unknown input relation, a relay gets the input-edge protection only if
+  its input is polled. "Nothing answers" is now 16 queries in a row without
+  a reply, whatever the masks.
+- The GUI is unchanged (it keeps reading all 8 relays and 8 inputs).
+- CLI: `--monitor-inputs --relays LIST --inputs LIST` (`all`, `none`,
+  `1,2,5-7`).
+- 10 new self-tests (119 in total); they fail when the masks are ignored.
+- HEX Momentary checked on the board: only the immediate reply
+  `33 3C 00 00 00 01 01 71`, no echo and no fall-back frame (closes the last
+  open item of `HARDWARE_ASSUMPTIONS.md`).
+
+## Step 22 — `--stress-test` diagnostic
+
+- Added `--stress-test [rounds]` to the CLI: sends the polling's 16 requests
+  per round back to back, counts lost or failed answers and state changes,
+  and measures the duration of a query and of a round, from which it derives
+  the display latency of the polling. Checked against a simulated board with
+  20 ms per query (80/80 answered, round 323 ms, about 0.21 s average and
+  0.42 s worst latency) and against one that loses 1 answer in 37 (2 of 80
+  reported); not yet run on the real board.
+- Procedures for the three remaining checks (HEX fall-back frames, bursts,
+  latency) written into `HARDWARE_ASSUMPTIONS.md`.
+- **Results on the real board:** bursts - 1600/1600 answered in AT and in HEX,
+  0 lost, 0 state changes (closed). Latency - query 14.6 ms (AT) / 20.0 ms
+  (HEX), round of 16: 234 / 321 ms; "perceptible but acceptable" in the GUI
+  (closed). HEX fall-back frame - RealTerm showed only the transmitted bytes
+  and nothing else in 5 s, but the board's reply was not reported either, so
+  the check is to be redone cleanly (still open, no code impact).
+
 ## Step 21 — Licence
 
 - Added `LICENSE` (MIT, Copyright (c) 2026 Laurent HAAS) and a "License"
@@ -419,8 +459,8 @@ and from our assumptions, all fixed here:
 - Naming convention adopted: `UD85C08_` prefix (specific to this board
   rather than a generic "Relay" name), `_` separator.
 - Strict separation between public API (`Core/include/`) and internal
-  implementation (`Core/src/`), in anticipation of use by a future
-  external project (see below) with no dependency on MFC.
+  implementation (`Core/src/`), so that other
+  projects can use the library with no dependency on MFC.
 - Created the projects in Visual Studio 2022 (Static Library, Console App,
   MFC App wizards), configured MFC/ATL, disabled precompiled headers on
   `Core`, set C++ Language Standard to `/std:c++17` on all 3 projects
@@ -430,15 +470,7 @@ and from our assumptions, all fixed here:
 
 ## Context notes (decisions made, not tied to a specific code step)
 
-- The planned third project will use the **Latch** mode (when a relay is on,
-  the others fall) together with **input reading**. Neither involves a
-  timer on the board, so reading relays and inputs is harmless there; the
-  pulse-related precautions above do not concern it. To be taken up later.
-
-- A third project (MFC, driving 4 relays via UDP frames and mouse clicks,
-  continuously reading 4 inputs) is planned but **explicitly set aside**:
-  it will come well after `UD85C08_CLI` / `UD85C08_GUI`, in a **separate
-  Visual Studio solution**, consuming only the published artifacts of
+- External solutions are meant to consume only the published artifacts of
   `UD85C08_Core` (`dist/lib` + `dist/include`), with no dependency on the
   source code or on `UD85C08_GUI`.
 - No GUI components in `UD85C08_Core`: all UI (MFC or otherwise) stays in

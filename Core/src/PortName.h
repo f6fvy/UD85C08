@@ -4,7 +4,7 @@
 // Windows only accepts a bare "COMn" name for n = 1..9. From COM10 upward
 // the device must be opened as "\\.\COMn" (verified on a real board:
 // "COM12" fails, "\\.\COM12" works). The prefix is also valid for COM1..9,
-// so it is simply always added. Callers (CLI, GUI, any future project)
+// so it is simply always added. Callers (CLI, GUI, or any other project)
 // can therefore pass either form and never need to know about this quirk.
 //
 // Kept free of any Windows header so it can be unit-tested anywhere.

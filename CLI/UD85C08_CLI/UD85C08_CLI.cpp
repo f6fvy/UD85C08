@@ -16,8 +16,10 @@
 #include <vector>
 #include <cstdlib>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <functional>
+#include <iomanip>
 #include <thread>
 
 using namespace UD85C08;
@@ -52,12 +54,19 @@ namespace
             "                                     (about 30 s for Momentary)\n"
             "    --measure-pulse <channel> [delay_ms ...]  Diagnostic: measures how long a Momentary\n"
             "                                     command pulse lasts (default 6 delays, no action needed)\n"
+            "    --stress-test [rounds]          Diagnostic: reads all 8 relays and 8 inputs back to back,\n"
+            "                                     as fast as possible (default 50 rounds of 16 queries),\n"
+            "                                     counts lost/failed answers and measures the time per\n"
+            "                                     query and per round. Keep the board idle meanwhile\n"
             "    --probe-input-pulse <channel> [delay_ms ...]  Diagnostic for input relation G3 (run\n"
             "                                     --set-relation 3 first): measures how long the relay\n"
             "                                     pulse started by an input lasts. You ground the input\n"
             "                                     when asked, once per delay (default 6 presses)\n"
-            "    --monitor-inputs [--interval ms] [--relation 0-3]  Continuously poll all relays and inputs,\n"
-            "                                     print changes. --relation tells the program which input\n"
+            "    --monitor-inputs [--interval ms] [--relation 0-3] [--relays LIST] [--inputs LIST]\n"
+            "                                     Continuously poll relays and inputs, print changes.\n"
+            "                                     --relays / --inputs restrict what is read (shorter\n"
+            "                                     rounds): LIST is 'all' (default), 'none' or channels\n"
+            "                                     like 1,2,5-7. --relation tells the program which input\n"
             "                                     relation the board is in (nothing is sent). Strongly\n"
             "                                     advised: in G3 (3) relays must not be read, or the pulses\n"
             "                                     the board starts on its own get cancelled\n"
@@ -84,6 +93,64 @@ namespace
             std::cout << label << ": OK\n";
         else
             std::cout << label << ": FAILED (" << ResultCodeToString(result.code) << ")\n";
+    }
+
+    // Parses a non-empty string of decimal digits (at most 4) into an int.
+    bool ParseSmallInt(const std::string& text, int& value)
+    {
+        if (text.empty() || text.size() > 4)
+            return false;
+        int v = 0;
+        for (char c : text)
+        {
+            if (c < '0' || c > '9')
+                return false;
+            v = v * 10 + (c - '0');
+        }
+        value = v;
+        return true;
+    }
+
+    // Parses a channel list into a mask: "all", "none", or items like "1,2,5-7"
+    // (channels 1-8). Returns false on any malformed item.
+    bool ParseChannelList(const std::string& text, ChannelMask& mask)
+    {
+        if (text == "all")  { mask = AllChannels; return true; }
+        if (text == "none") { mask = NoChannels;  return true; }
+
+        ChannelMask result = NoChannels;
+        size_t pos = 0;
+        while (pos <= text.size())
+        {
+            size_t comma = text.find(',', pos);
+            if (comma == std::string::npos)
+                comma = text.size();
+            const std::string item = text.substr(pos, comma - pos);
+            pos = comma + 1;
+
+            int first = 0, last = 0;
+            const size_t dash = item.find('-');
+            if (dash == std::string::npos)
+            {
+                if (!ParseSmallInt(item, first)) return false;
+                last = first;
+            }
+            else if (!ParseSmallInt(item.substr(0, dash), first) ||
+                     !ParseSmallInt(item.substr(dash + 1), last))
+            {
+                return false;
+            }
+
+            if (first < 1 || last > ChannelCount || first > last)
+                return false;
+            for (int ch = first; ch <= last; ++ch)
+                result = static_cast<ChannelMask>(result | ChannelBit(ch));
+
+            if (comma >= text.size())
+                break;
+        }
+        mask = result;
+        return true;
     }
 
     void SleepMs(int ms)
@@ -184,6 +251,105 @@ namespace
         std::cout << "\nSummary: " << std::count(fell.begin(), fell.end(), true) << " of "
                   << scenarios.size() << " scenarios let the relay fall back.\n";
         return 0;
+    }
+
+    // Diagnostic: hammers the board with the same requests the polling uses, back to back,
+    // to check that no answer is lost or confused, and to measure how long a query and a full
+    // round take (which is what bounds the display latency of the polling).
+    int RunStressTest(Controller& controller, int rounds)
+    {
+        using Clock = std::chrono::steady_clock;
+
+        std::vector<double> queryMs;   // duration of every successful query
+        std::vector<double> roundMs;   // duration of every round of 16 queries
+        int answered = 0, timeouts = 0, otherErrors = 0, changes = 0;
+
+        std::array<RelayState, ChannelCount + 1> firstRelay{};
+        std::array<InputState, ChannelCount + 1> firstInput{};
+
+        std::cout << "Stress test: " << rounds << " rounds x " << 2 * ChannelCount << " queries = "
+                  << rounds * 2 * ChannelCount << " queries. Keep the board idle (no pulse running, "
+                  << "do not touch the inputs).\n\n";
+
+        auto note = [&](const OperationResult& r, double ms)
+        {
+            if (r.IsOk())
+            {
+                ++answered;
+                queryMs.push_back(ms);
+            }
+            else if (r.code == ResultCode::Timeout)
+                ++timeouts;
+            else
+                ++otherErrors;
+        };
+
+        const auto wallStart = Clock::now();
+        for (int round = 0; round < rounds; ++round)
+        {
+            const auto roundStart = Clock::now();
+
+            for (Channel ch = 1; ch <= ChannelCount; ++ch)
+            {
+                RelayState relay = RelayState::Unknown;
+                auto t0 = Clock::now();
+                OperationResult rr = controller.QueryRelayStatus(ch, relay, 500);
+                note(rr, std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+                if (rr.IsOk())
+                {
+                    if (firstRelay[ch] == RelayState::Unknown) firstRelay[ch] = relay;
+                    else if (firstRelay[ch] != relay) ++changes;
+                }
+
+                InputState input = InputState::Unknown;
+                t0 = Clock::now();
+                OperationResult ri = controller.QueryInputStatus(ch, input, 500);
+                note(ri, std::chrono::duration<double, std::milli>(Clock::now() - t0).count());
+                if (ri.IsOk())
+                {
+                    if (firstInput[ch] == InputState::Unknown) firstInput[ch] = input;
+                    else if (firstInput[ch] != input) ++changes;
+                }
+            }
+
+            roundMs.push_back(std::chrono::duration<double, std::milli>(Clock::now() - roundStart).count());
+        }
+        const double wallS = std::chrono::duration<double>(Clock::now() - wallStart).count();
+
+        const int total = rounds * 2 * ChannelCount;
+        std::cout << std::fixed << std::setprecision(1);
+        std::cout << "Queries answered : " << answered << " of " << total << "\n";
+        std::cout << "Lost / failed    : " << timeouts + otherErrors << "  (" << timeouts << " timeouts, "
+                  << otherErrors << " other errors)\n";
+        std::cout << "State changes    : " << changes << "  (a relay or an input differed from its first reading)\n";
+
+        if (!queryMs.empty())
+        {
+            std::sort(queryMs.begin(), queryMs.end());
+            double sum = 0;
+            for (double v : queryMs) sum += v;
+            const double avg = sum / queryMs.size();
+            const double p95 = queryMs[static_cast<size_t>(queryMs.size() * 0.95) < queryMs.size()
+                                        ? static_cast<size_t>(queryMs.size() * 0.95) : queryMs.size() - 1];
+            std::cout << "Query duration   : min " << queryMs.front() << " ms, average " << avg
+                      << " ms, 95% under " << p95 << " ms, max " << queryMs.back() << " ms\n";
+        }
+
+        if (!roundMs.empty())
+        {
+            double sum = 0, worst = 0;
+            for (double v : roundMs) { sum += v; worst = std::max(worst, v); }
+            const double avgRound = sum / roundMs.size();
+            const int pauseMs = 100; // StartPolling's default pause between rounds (the GUI uses 100 too)
+            std::cout << "Round of " << 2 * ChannelCount << " queries: average " << avgRound << " ms, worst " << worst << " ms\n";
+            std::cout << "\nWith the polling pause of " << pauseMs << " ms, a change on the board reaches the display "
+                      << "after about " << (avgRound + pauseMs) / 2 << " ms on average and at most about "
+                      << worst + pauseMs << " ms\n(plus 2 s for a relay switched by an input when the input relation "
+                      << "is not known to the library).\n";
+        }
+
+        std::cout << "\nTotal time: " << wallS << " s.\n";
+        return (timeouts + otherErrors) == 0 ? 0 : 2;
     }
 
     // Brackets a pulse duration from (delay, "relay still open when read") results.
@@ -487,6 +653,12 @@ namespace
                       << "\n";
             return 0;
         }
+        else if (cmd == "--stress-test")
+        {
+            int rounds = (remaining.size() >= 2) ? std::atoi(remaining[1].c_str()) : 50;
+            if (rounds < 1 || rounds > 1000) { std::cerr << "Rounds must be 1-1000\n"; return 1; }
+            return RunStressTest(controller, rounds);
+        }
         else if (cmd == "--measure-pulse")
         {
             if (remaining.size() < 2) { std::cerr << "Usage: --measure-pulse <channel> [delay_ms ...]\n"; return 1; }
@@ -539,12 +711,25 @@ namespace
         {
             int intervalMs = 200;
             int relation = -1; // unknown
+            ChannelMask relayMask = AllChannels;
+            ChannelMask inputMask = AllChannels;
             for (size_t j = 1; j < remaining.size(); ++j)
             {
                 if (remaining[j] == "--interval" && j + 1 < remaining.size())
                     intervalMs = std::atoi(remaining[++j].c_str());
                 else if (remaining[j] == "--relation" && j + 1 < remaining.size())
                     relation = std::atoi(remaining[++j].c_str());
+                else if ((remaining[j] == "--relays" || remaining[j] == "--inputs") && j + 1 < remaining.size())
+                {
+                    const bool isRelays = (remaining[j] == "--relays");
+                    if (!ParseChannelList(remaining[j + 1], isRelays ? relayMask : inputMask))
+                    {
+                        std::cerr << "Invalid channel list for " << remaining[j] << ": '" << remaining[j + 1]
+                                  << "' (use all, none, or e.g. 1,2,5-7)\n";
+                        return 1;
+                    }
+                    ++j;
+                }
             }
 
             if (relation >= 0 && relation <= 3)
@@ -579,8 +764,11 @@ namespace
                 }
             });
 
-            std::cout << "Monitoring relays and inputs every " << intervalMs << " ms. Press Enter to stop.\n";
-            controller.StartPolling(intervalMs);
+            std::cout << "Monitoring every " << intervalMs << " ms (relays mask 0x" << std::hex << std::uppercase
+                      << std::setw(2) << std::setfill('0') << static_cast<int>(relayMask)
+                      << ", inputs mask 0x" << std::setw(2) << static_cast<int>(inputMask) << std::dec
+                      << std::setfill(' ') << "). Press Enter to stop.\n";
+            controller.StartPolling(intervalMs, relayMask, inputMask);
             std::cin.get();
             controller.StopPolling();
             return 0;

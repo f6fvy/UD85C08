@@ -60,7 +60,7 @@ UD85C08/
 | `UD85C08_CLI` | Functional; commands exercised on a real board in AT mode (open/close/read-relay/read-input/monitor) |
 | `UD85C08_GUI` | Full UI wired to `Controller`: Connect/Disconnect, per-channel ON/OFF (mode-dependent), All ON/OFF, I/O relation, `.ini` settings persistence. Live relay/input LEDs (polling + `PostMessage`), input relation applied at Connect; validated on a real board |
 
-109/109 self-tests passing (`AtCommandCodec`, `HexFrameCodec`, `Controller` +
+119/119 self-tests passing (`AtCommandCodec`, `HexFrameCodec`, `Controller` +
 `MockSerialTransport` integration and hardening, including the frames
 actually captured from a real board). See `CHANGELOG.md` for step-by-step
 details.
@@ -98,7 +98,7 @@ From a terminal in the output folder (e.g. `x64\Debug\`):
 UD85C08_CLI.exe --selftest
 ```
 
-Should print `109/109 tests passed.` — no hardware required.
+Should print `119/119 tests passed.` — no hardware required.
 
 ## Using the library from another project
 
@@ -111,11 +111,7 @@ shared DLL). Both x64 and x86 builds of this solution are validated.
 
 The generic tools (`Core`, `UD85C08_CLI`, `UD85C08_GUI`) are validated on a
 real board, and the library is published to `dist/` by a post-build step.
-What is left open is listed in `HARDWARE_ASSUMPTIONS.md` (Momentary/Delay
-fall-back reporting in HEX, polling latency, bursts of queries). The planned
-third project (Latch mode + input reading, in its own solution consuming
-`dist/`) is not started. A licence for this repository's own code still has
-to be chosen before it goes public.
+No protocol question is left open (see `HARDWARE_ASSUMPTIONS.md`).
 
 ## License
 

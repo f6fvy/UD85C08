@@ -7,7 +7,7 @@
 //     notably UD85C08_MockSerialTransport.h, so that command sequencing,
 //     response parsing and event dispatch can be unit-tested without any
 //     physical UD85C08 board attached.
-//   - Any consumer project (CLI, GUI, or a future one) can reuse the same
+//   - Any consumer project (CLI, GUI, or any other) can reuse the same
 //     mechanism for its own tests.
 //
 // UD85C08::SerialTransport (the real, CSerialPort2-backed implementation)

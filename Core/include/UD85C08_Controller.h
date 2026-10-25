@@ -1,6 +1,6 @@
 // UD85C08_Controller.h
 // Public API - main entry point of the library.
-// This is the ONLY header a consumer project (CLI, GUI, or any future
+// This is the ONLY header a consumer project (CLI, GUI, or any other
 // project) needs to include in order to drive a UD85C08 board.
 //
 // Design notes:
@@ -159,7 +159,29 @@ namespace UD85C08
         // The consumer should then react (typically Disconnect(), refresh
         // its list of COM ports, and reconnect once the board is back);
         // StopPolling() remains safe to call afterwards.
-        void StartPolling(int pollIntervalMs = 100);
+        //
+        // Masks: relayMask / inputMask select which channels are read
+        // (bit 0 = channel 1 ... bit 7 = channel 8). Fewer channels means a
+        // shorter round. Not specified = AllChannels (read everything);
+        // an explicit NoChannels (0) = read none of that kind. Both masks may
+        // be 0: the thread then stays idle and, having no traffic, cannot
+        // detect a lost link until the next command.
+        //
+        // A relay that is not polled is still reported after a Send* command
+        // on it. With an unknown input relation, a relay is protected after an
+        // input edge only if its input is polled.
+        //
+        // "No answer at all" means 16 queries in a row without a reply (a full
+        // round when all 16 reads are enabled), whatever the masks.
+        void StartPolling(int pollIntervalMs = 100,
+                          ChannelMask relayMask = AllChannels,
+                          ChannelMask inputMask = AllChannels);
+
+        // Changes the masks of a running polling; takes effect from the next
+        // channel read. Meant to be called while polling runs, because
+        // StartPolling overwrites the masks with its own arguments.
+        void SetPollingMasks(ChannelMask relayMask, ChannelMask inputMask);
+
         void StopPolling();
 
     private:

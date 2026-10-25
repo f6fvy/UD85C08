@@ -403,6 +403,8 @@ namespace UD85C08
             // How many times the controller asked for a relay state / an input state.
             int RelayReads() const { return m_relayReads.load(); }
             int InputReads() const { return m_inputReads.load(); }
+            int RelayReadsOf(int ch) const { return m_relayReadsOf[ch].load(); }
+            int InputReadsOf(int ch) const { return m_inputReadsOf[ch].load(); }
 
             ByteBuffer Respond(const ByteBuffer& sent)
             {
@@ -440,12 +442,14 @@ namespace UD85C08
                     if (sent == m_codec->EncodeReadRelayStatus(ch))
                     {
                         ++m_relayReads;
+                        ++m_relayReadsOf[ch];
                         m_pulsing[ch] = false; // measured: reading a pulsing relay cancels its pulse
                         return RelayReply(m_mode, ch, m_relay[ch]);
                     }
                     if (sent == m_codec->EncodeReadInputStatus(ch))
                     {
                         ++m_inputReads;
+                        ++m_inputReadsOf[ch];
                         return InputReply(m_mode, ch, m_input[ch]);
                     }
                     if (sent == m_codec->EncodeOpen(ch))
@@ -527,6 +531,8 @@ namespace UD85C08
             std::array<Clock::time_point, ChannelCount + 1> m_pulseEnd;
             std::atomic<int> m_relayReads{ 0 };
             std::atomic<int> m_inputReads{ 0 };
+            std::array<std::atomic<int>, ChannelCount + 1> m_relayReadsOf{};
+            std::array<std::atomic<int>, ChannelCount + 1> m_inputReadsOf{};
         };
 
         // Thread-safe collector for the events a Controller raises.
@@ -1337,6 +1343,143 @@ namespace UD85C08
 
                 Check(board.RelayReads() > 0,
                       "Controller: the known relation is forgotten on Connect, relays are read again");
+            }
+
+
+            // =================== Polling masks ===================
+
+            // Helper: a controller on a FakeBoard, polling with the given masks.
+            // (Written as a lambda so every test below stays short.)
+            auto maskedRun = [](FakeBoard& board, int runMs, auto startFn)
+            {
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+                mock->SetResponder([&](const ByteBuffer& sent) { return board.Respond(sent); });
+
+                Controller controller(ProtocolMode::At, std::move(transport));
+                controller.Connect(L"MOCK");
+                startFn(controller);
+                std::this_thread::sleep_for(std::chrono::milliseconds(runMs));
+                controller.StopPolling();
+            };
+
+            // --- Masks select channels: relays 1-4 and inputs 1-4 only --------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                maskedRun(board, 400, [](Controller& c) { c.StartPolling(10, 0x0F, 0x0F); });
+                bool ok = true;
+                for (int ch = 1; ch <= 4; ++ch)
+                    ok = ok && board.RelayReadsOf(ch) > 0 && board.InputReadsOf(ch) > 0;
+                for (int ch = 5; ch <= 8; ++ch)
+                    ok = ok && board.RelayReadsOf(ch) == 0 && board.InputReadsOf(ch) == 0;
+                Check(ok, "Polling masks: only channels 1-4 are read when both masks are 0x0F");
+            }
+
+            // --- Explicit 0 relays: inputs still read, no relay read ---------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                maskedRun(board, 300, [](Controller& c) { c.StartPolling(10, NoChannels, AllChannels); });
+                Check(board.RelayReads() == 0 && board.InputReads() > 0,
+                      "Polling masks: an explicit relay mask of 0 reads no relay (inputs still read)");
+            }
+
+            // --- Explicit 0 inputs: relays still read, no input read ----------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                maskedRun(board, 300, [](Controller& c) { c.StartPolling(10, AllChannels, NoChannels); });
+                Check(board.InputReads() == 0 && board.RelayReads() > 0,
+                      "Polling masks: an explicit input mask of 0 reads no input (relays still read)");
+            }
+
+            // --- Unspecified masks = everything -----------------------------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                maskedRun(board, 400, [](Controller& c) { c.StartPolling(10); });
+                bool ok = true;
+                for (int ch = 1; ch <= ChannelCount; ++ch)
+                    ok = ok && board.RelayReadsOf(ch) > 0 && board.InputReadsOf(ch) > 0;
+                Check(ok, "Polling masks: unspecified masks read all 8 relays and all 8 inputs");
+            }
+
+            // --- Both masks 0: idle thread, then SetPollingMasks wakes it -------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+                mock->SetResponder([&](const ByteBuffer& sent) { return board.Respond(sent); });
+
+                Controller controller(ProtocolMode::At, std::move(transport));
+                controller.Connect(L"MOCK");
+                controller.StartPolling(10, NoChannels, NoChannels);
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                Check(board.RelayReads() == 0 && board.InputReads() == 0,
+                      "Polling masks: both masks 0 -> the thread stays idle, nothing is sent");
+
+                controller.SetPollingMasks(ChannelBit(2), ChannelBit(3));
+                Check(WaitFor([&]() { return board.RelayReadsOf(2) > 0 && board.InputReadsOf(3) > 0; }, 2000),
+                      "Polling masks: SetPollingMasks wakes an idle polling");
+                controller.StopPolling();
+            }
+
+            // --- Narrowing while running ------------------------------------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+                mock->SetResponder([&](const ByteBuffer& sent) { return board.Respond(sent); });
+
+                Controller controller(ProtocolMode::At, std::move(transport));
+                controller.Connect(L"MOCK");
+                controller.StartPolling(10);
+                WaitFor([&]() { return board.RelayReadsOf(8) > 2; }, 2000);
+
+                controller.SetPollingMasks(ChannelBit(1), NoChannels);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100)); // let the current round end
+                const int before8 = board.RelayReadsOf(8);
+                const int before1 = board.RelayReadsOf(1);
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                Check(board.RelayReadsOf(8) == before8 && board.RelayReadsOf(1) > before1,
+                      "Polling masks: narrowing the masks while running stops reading the dropped channels");
+                controller.StopPolling();
+            }
+
+            // --- A command on an unpolled relay is still reported --------------------------------
+            {
+                FakeBoard board(ProtocolMode::At);
+                auto transport = std::make_unique<MockSerialTransport>();
+                MockSerialTransport* mock = transport.get();
+                mock->SetResponder([&](const ByteBuffer& sent) { return board.Respond(sent); });
+
+                Controller controller(ProtocolMode::At, std::move(transport));
+                controller.Connect(L"MOCK");
+
+                EventLog log;
+                controller.SetEventCallback([&](const Event& ev) { log.Add(ev); });
+                controller.StartPolling(10, ChannelBit(1), NoChannels);
+                WaitFor([&]() { return log.HasRelay(1, RelayState::Closed); }, 2000);
+
+                controller.SendOpen(5);
+                Check(log.HasRelay(5, RelayState::Open) && board.RelayReadsOf(5) == 0,
+                      "Polling masks: Send* on an unpolled relay still reports its state (without reading it)");
+                controller.StopPolling();
+            }
+
+            // --- Silent board is still detected with a single-query round -------------------------
+            {
+                auto transport = std::make_unique<MockSerialTransport>(); // no responder: silent
+                Controller controller(ProtocolMode::At, std::move(transport));
+                controller.Connect(L"MOCK");
+
+                std::atomic<int> errors{ 0 };
+                controller.SetEventCallback([&](const Event& ev) {
+                    if (ev.type == EventType::TransportError) ++errors; });
+                controller.StartPolling(10, NoChannels, ChannelBit(1));
+
+                Check(WaitFor([&]() { return errors.load() == 1; }, 6000),
+                      "Polling masks: a silent board is detected even with one query per round");
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                Check(errors.load() == 1, "Polling masks: still exactly ONE error, then polling stops");
+                controller.StopPolling();
             }
 
             // --- A port that is open but never answers: ONE error, then polling stops -------

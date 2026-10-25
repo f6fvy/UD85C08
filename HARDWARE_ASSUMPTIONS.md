@@ -88,19 +88,24 @@ bench tests settled.
   both Debug and Release under Visual Studio 2022 (all earlier runs were
   under GCC on Linux).
 
+- [x] **Bursts of back-to-back queries.** `--stress-test 100` (1600 queries
+  each, board idle): 1600 of 1600 answered, 0 lost, 0 state changes, in AT and
+  in HEX. No answer is lost or confused at polling pace.
+
+- [x] **Polling latency.** Measured with `--stress-test`: a query takes 14.6 ms
+  on average in AT (12.3-17.4 ms) and 20.0 ms in HEX (19.7-20.6 ms); a round of
+  16 queries takes 234 ms (AT) / 321 ms (HEX). With the 100 ms pause a change
+  reaches the display after about 0.17 s (AT) / 0.21 s (HEX) on average and at
+  most 0.34 s / 0.42 s. Judged "perceptible but acceptable" in the GUI.
+
+- [x] **Momentary in HEX sends only the immediate reply**: the relay stays
+  on for a few seconds, the board answers `33 3C 00 00 00 01 01 71` and
+  nothing else - no echo of the command and no frame at fall-back (checked
+  with RealTerm, second attempt). The polling is what reports the fall-back.
+
 ## Still open
 
-- [ ] **Momentary / Delay fall-back in HEX.** For AT it is confirmed that
-  nothing is sent when the relay falls back. Not recorded for HEX.
-
-- [ ] **Bursts of back-to-back queries.** Polling will issue 8 (or 16)
-  queries in a row. Confirm that no answer is lost or merged with
-  another at that pace.
-
-- [ ] **Refresh latency of the polling.** One round is 16 queries (8 relays
-  + 8 inputs) at ~20 ms each, i.e. roughly 0.3-0.4 s plus the pause between
-  rounds. Measure how long a state change really takes to reach the LEDs
-  on the real board, and tune the polling interval if needed.
+_Nothing is open any more on the protocol side._
 
 ## How the live LEDs work (implemented in `Controller`, validated with the GUI)
 

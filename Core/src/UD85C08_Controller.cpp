@@ -80,6 +80,10 @@ namespace UD85C08
         // be asked, and it remembers its mode across power cycles).
         std::atomic<int> knownRelation{ -1 };
 
+        // Which channels the polling reads (bit 0 = channel 1).
+        std::atomic<ChannelMask> pollRelayMask{ AllChannels };
+        std::atomic<ChannelMask> pollInputMask{ AllChannels };
+
         // Until when a relay must not be read, because its own pulse is running
         // (index 1..8). Default-constructed = the epoch = "not quiet". Guarded
         // by stateMutex.
@@ -332,8 +336,9 @@ namespace UD85C08
 
         void PollLoop()
         {
-            // One full round is 8 relay reads + 8 input reads. If a whole
-            // round gets no answer at all, nothing is listening.
+            // A full round is 8 relay reads + 8 input reads. If that many
+            // queries in a row get no answer at all, nothing is listening
+            // (the count is in queries, so it also holds with masks).
             const int maxConsecutiveTimeouts = 2 * ChannelCount;
             int consecutiveTimeouts = 0;
 
@@ -376,10 +381,17 @@ namespace UD85C08
                 const bool readRelays = (relation != static_cast<int>(InputOutputRelation::Momentary));
                 const bool protectAfterInputEdge = (relation < 0); // only when the relation is unknown
 
+                int queriesThisRound = 0;
+
                 for (Channel ch = 1; ch <= ChannelCount; ++ch)
                 {
                     if (!pollingActive.load())
                         return;
+
+                    // Masks are re-read per channel so SetPollingMasks applies at once.
+                    const ChannelMask bit = ChannelBit(ch);
+                    const bool pollInput = (pollInputMask.load() & bit) != 0;
+                    const bool pollRelay = (pollRelayMask.load() & bit) != 0;
 
                     DecodedResponse resp;
 
@@ -388,17 +400,21 @@ namespace UD85C08
                     // reading the relay now would cancel it. The relay read follows
                     // right away, so the unavoidable blind spot is only the ~20 ms
                     // between the two reads.
-                    OperationResult inputResult = Query(codec->EncodeReadInputStatus(ch),
-                                                         ResponseKind::InputStatus, ch, resp, PollQueryTimeoutMs);
-                    if (inputResult.IsOk() && PublishInputState(ch, resp.inputState) && protectAfterInputEdge)
-                        ExtendQuietPeriod(ch, InputEdgeQuietMs);
-                    if (!handle(inputResult, ch))
-                        return;
+                    if (pollInput)
+                    {
+                        ++queriesThisRound;
+                        OperationResult inputResult = Query(codec->EncodeReadInputStatus(ch),
+                                                             ResponseKind::InputStatus, ch, resp, PollQueryTimeoutMs);
+                        if (inputResult.IsOk() && PublishInputState(ch, resp.inputState) && protectAfterInputEdge)
+                            ExtendQuietPeriod(ch, InputEdgeQuietMs);
+                        if (!handle(inputResult, ch))
+                            return;
+                    }
 
                     if (!pollingActive.load())
                         return;
 
-                    if (!readRelays)
+                    if (!pollRelay || !readRelays)
                         continue; // G3: a relay read could cancel a pulse the board started by itself
 
                     // A relay whose pulse is running (Momentary/Delay command, or an
@@ -406,6 +422,7 @@ namespace UD85C08
                     // pulse. Skip it until the pulse is over.
                     if (!IsQuiet(ch))
                     {
+                        ++queriesThisRound;
                         OperationResult relayResult = Query(codec->EncodeReadRelayStatus(ch),
                                                              ResponseKind::RelayStatus, ch, resp, PollQueryTimeoutMs);
                         if (relayResult.IsOk())
@@ -417,7 +434,11 @@ namespace UD85C08
 
                 // Pause between rounds, in small slices so that StopPolling()
                 // returns promptly even with a long interval.
-                for (int waited = 0; waited < pollIntervalMs && pollingActive.load(); waited += 10)
+                // A round that sent nothing (empty masks, G3 with no inputs...) still
+                // sleeps at least one slice, so the thread never spins.
+                const int minimumPauseMs = (queriesThisRound == 0) ? 10 : 0;
+                const int pauseMs = (pollIntervalMs > minimumPauseMs) ? pollIntervalMs : minimumPauseMs;
+                for (int waited = 0; waited < pauseMs && pollingActive.load(); waited += 10)
                     std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
@@ -553,10 +574,17 @@ namespace UD85C08
         m_impl->callback = std::move(callback);
     }
 
-    void Controller::StartPolling(int pollIntervalMs)
+    void Controller::SetPollingMasks(ChannelMask relayMask, ChannelMask inputMask)
+    {
+        m_impl->pollRelayMask.store(relayMask);
+        m_impl->pollInputMask.store(inputMask);
+    }
+
+    void Controller::StartPolling(int pollIntervalMs, ChannelMask relayMask, ChannelMask inputMask)
     {
         StopPolling();
         m_impl->ResetKnownStates(); // the first round reports every channel
+        SetPollingMasks(relayMask, inputMask);
         m_impl->pollIntervalMs = pollIntervalMs;
         m_impl->pollingActive.store(true);
         m_impl->pollingThread = std::thread([this]() { m_impl->PollLoop(); });
