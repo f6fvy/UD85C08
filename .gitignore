@@ -28,3 +28,4 @@ dist/*
 # See third_party/naughter/README.md for how to obtain it.
 # --------------------------------------------------------------------
 Core/third_party/naughter/SerialPort.h
+*.aps
