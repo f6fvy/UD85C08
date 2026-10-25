@@ -25,6 +25,7 @@
     <ClInclude Include="include\UD85C08_MockSerialTransport.h" />
     <ClInclude Include="include\UD85C08_SelfTest.h" />
     <ClInclude Include="include\UD85C08_Types.h" />
+    <ClInclude Include="include\UD85C08_Version.h" />
     <ClInclude Include="src\AtCommandCodec.h" />
     <ClInclude Include="src\HexFrameCodec.h" />
     <ClInclude Include="src\PortName.h" />
