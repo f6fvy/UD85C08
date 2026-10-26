@@ -67,6 +67,27 @@ Version 1.0.0 (Semantic Versioning, see `CHANGELOG.md`).
 actually captured from a real board). See `CHANGELOG.md` for step-by-step
 details.
 
+## Requirements
+
+**To build**
+
+- Windows with Visual Studio 2022 (MSVC v143 toolset), including the
+  "Desktop development with C++" workload and the **MFC/ATL** component
+  (needed by the serial port class and by `UD85C08_GUI`).
+- `/std:c++17` (set in the project files).
+- `SerialPort.h` from naughter.com, see "Getting third-party dependencies".
+
+**To run** (the executables, on any PC)
+
+- Windows, 32-bit (x86) or 64-bit (x64) build matching the PC's needs.
+- **Microsoft Visual C++ 2015-2022 Redistributable, version 14.40 or
+  later**, in the architecture matching the executable (x64 for the x64
+  build, x86 for the x86 build). With an older redistributable, the programs
+  may fail to start or crash. Download it from Microsoft ("Latest supported
+  Visual C++ Redistributable downloads"). It is already present on a PC where
+  Visual Studio 2022 is up to date.
+- The board's USB-serial driver, so that it appears as a COM port.
+
 ## Getting third-party dependencies
 
 `Core/third_party/naughter/SerialPort.h` is NOT included in this
